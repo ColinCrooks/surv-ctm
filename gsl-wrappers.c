@@ -220,7 +220,7 @@ void sym_eigen(gsl_matrix* m, gsl_vector* vals, gsl_matrix* vects)
 double sum(gsl_vector* v)
 {
     double *data = v->data, val = 0;
-    int size = v->size;
+    int size = (int) v->size;
     int i;
     for (i = 0; i < size; i++)
         val += data[i];
@@ -230,7 +230,7 @@ double sum(gsl_vector* v)
 
 void center(gsl_vector* v)
 {
-    int size = v->size;
+    int size = (int) v->size;
     double mean = sum(v)/size;
     int i;
     for (i = 0; i < size; i++)
@@ -240,7 +240,7 @@ void center(gsl_vector* v)
 
 void normalize(gsl_vector* v)
 {
-    int size = v->size;
+    int size = (int) v->size;
     double sum_v = sum(v);
     int i;
     for (i = 0; i < size; i++)

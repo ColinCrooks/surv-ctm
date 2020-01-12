@@ -29,24 +29,25 @@ void read_params(char* filename)
 {
     FILE* fileptr;
     char string[100];
-
+    int chk=0;
     fileptr = fopen(filename, "r");
-    fscanf(fileptr, "em max iter %d\n", &(PARAMS.em_max_iter));
-    fscanf(fileptr, "var max iter %d\n", &(PARAMS.var_max_iter));
-    fscanf(fileptr, "cg max iter %d\n", &(PARAMS.cg_max_iter));
-    fscanf(fileptr, "surv max iter %d\n", &(PARAMS.surv_max_iter));
-    fscanf(fileptr, "em convergence %lf\n", &(PARAMS.em_convergence));
-    fscanf(fileptr, "var convergence %lf\n", &(PARAMS.var_convergence));
-    fscanf(fileptr, "cg convergence %lf\n", &(PARAMS.cg_convergence));
-    fscanf(fileptr, "surv convergence %lf\n", &(PARAMS.surv_convergence));
-    fscanf(fileptr, "surv penalty %lf\n", &(PARAMS.surv_penalty));
-    fscanf(fileptr, "lag %d\n", &(PARAMS.lag));
-    fscanf(fileptr, "run in %d\n", &(PARAMS.runin));
-    fscanf(fileptr, "covariance estimate %s\n", string);
-    if (strcmp(string, "shrinkage")==0)
+    chk+=fscanf(fileptr, "em max iter %d\n", &(PARAMS.em_max_iter));
+    chk+=fscanf(fileptr, "var max iter %d\n", &(PARAMS.var_max_iter));
+    chk+=fscanf(fileptr, "cg max iter %d\n", &(PARAMS.cg_max_iter));
+    chk+=fscanf(fileptr, "surv max iter %d\n", &(PARAMS.surv_max_iter));
+    chk+=fscanf(fileptr, "em convergence %lf\n", &(PARAMS.em_convergence));
+    chk+=fscanf(fileptr, "var convergence %lf\n", &(PARAMS.var_convergence));
+    chk+=fscanf(fileptr, "cg convergence %lf\n", &(PARAMS.cg_convergence));
+    chk+=fscanf(fileptr, "surv convergence %lf\n", &(PARAMS.surv_convergence));
+    chk+=fscanf(fileptr, "surv penalty %lf\n", &(PARAMS.surv_penalty));
+    chk+=fscanf(fileptr, "lag %d\n", &(PARAMS.lag));
+    chk+=fscanf(fileptr, "run in %d\n", &(PARAMS.runin));
+    chk+=fscanf(fileptr, "covariance estimate %s\n", string);
+    if (strcmp(string, "shrinkage") == 0)
         PARAMS.cov_estimate = SHRINK;
     if (strcmp(string, "mle")==0)
         PARAMS.cov_estimate = MLE;
+    if (chk < 12) printf("Only read in %d parameters and expected 12", chk);
 }
 
 

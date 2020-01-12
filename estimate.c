@@ -34,8 +34,11 @@
 #include <time.h>
 #include <string.h>
 #include <gsl/gsl_blas.h>
+#include <gsl/gsl_rng.h>
+#include <gsl/gsl_heapsort.h>
 #include <assert.h>
 #include <omp.h>
+
 
 #include "corpus.h"
 #include "ctm.h"
@@ -60,6 +63,9 @@ extern llna_params PARAMS;
 # include <sys/stat.h> // linux header for mkdir
 #endif
 
+#define HAVE_INLINE 1                   
+#define GSL_RANGE_CHECK 0
+#define GSL_RANGE_CHECK_OFF   1       // Turn off range checking for arrays
 
 
 /*
@@ -73,13 +79,13 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
                  gsl_matrix* corpus_phi_sum,
                  short reset_var, double* converged_pct)
 {
-    double total; 
+    double total= 0.0; 
     *avg_niter = 0.0;
     *converged_pct = 0;
 
     double avniter = 0.0;
     double convergedpct = 0;
-
+    gsl_matrix_set_zero(corpus->zbar);
     total = 0;
 #pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
@@ -97,6 +103,8 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
            // printf("doc %5d   ", i);
             doc = corpus->docs[i];
             var = new_llna_var_param(doc.nterms, model->k);
+          /*  if (var == NULL)
+                return;*/
             if (reset_var)
                 init_var_unif(var, &doc, model);
             else
@@ -114,13 +122,16 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             // printf("lhood %5.5e   niter %5d\n", lhood, var->niter);
             avniter += var->niter;
             convergedpct += var->converged;
+
             // Allocated topics for survival supervision
-            for (j = 0; j < model->k; j++)
-                mset(corpus->zbar, i, j, 0);
             for (n = 0; n < doc.nterms; n++)
                 for (j = 0; j < model->k; j++)
-                    minc(corpus->zbar, i, j, (double) doc.count[n] * mget(var->phi, n, j)); //document specific so doesn't need to be atomic
-
+                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double)doc.count[n] / (double)doc.total);
+                    // minc(corpus->zbar, i, j, vget(var->lambda, j));
+                    //
+            //printf("zbar\t");
+            //gsl_vector_view zbar = gsl_matrix_row(corpus->zbar, i);
+            //vprint(&zbar.vector);
             gsl_matrix_set_row(corpus_lambda, i, var->lambda);
             gsl_matrix_set_row(corpus_nu, i, var->nu);
             col_sum(var->phi, phi_sum);
@@ -143,7 +154,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
 
 void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
 {
-    int p = mle->size1, i;
+    int p = (int) mle->size1, i;
     double temp = 0, alpha = 0, tau = 0, log_lambda_s = 0;
     gsl_vector
         *lambda_star = gsl_vector_calloc(p),
@@ -165,7 +176,7 @@ void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
         // compute shrunken eigenvalues
 
         temp = 0;
-        alpha = 1.0/(n+p+1-2*i);
+        alpha = 1.0 / ( (double) n + (double) p + 1 - 2 * (double) i);
         vset(lambda_star, i, n * alpha * vget(eigen_vals, i));
     }
 
@@ -182,14 +193,14 @@ void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
         log_lambda_s += log(vget(s_eigen_vals, i));
     log_lambda_s = log_lambda_s/p;
     for (i = 0; i < p; i++)
-        tau += pow(log(vget(lambda_star, i)) - log_lambda_s, 2)/(p + 4) - 2.0 / n;
+        tau += pow(log(vget(lambda_star, i)) - log_lambda_s, 2)/((double) p + 4) - 2.0 / (double) n;
 
     // shrink \lambda* towards the structured eigenvalues
 
     for (i = 0; i < p; i++)
         vset(lambda_star, i,
-             exp((2.0/n)/((2.0/n) + tau) * log_lambda_s +
-                 tau/((2.0/n) + tau) * log(vget(lambda_star, i))));
+             exp((2.0 / (double) n ) / ((2.0 / (double) n) + tau) * log_lambda_s +
+                 tau/((2.0 / (double) n) + tau) * log(vget(lambda_star, i))));
 
     // put the eigenvalues in a diagonal matrix
 
@@ -278,6 +289,8 @@ llna_model* em_initial_model(int k, corpus* corpus, char* start)
         model = corpus_init(k, corpus);
     else
         model = read_llna_model(start);
+    if (model == NULL)
+        return NULL;
     gsl_vector* events = gsl_vector_calloc(range_t);
     gsl_vector* xb = gsl_vector_calloc(range_t);
     corpus->zbar = gsl_matrix_calloc(corpus->ndocs, k);
@@ -296,26 +309,14 @@ llna_model* em_initial_model(int k, corpus* corpus, char* start)
         }
     }
 
-
     vset(model->cbasehazard, 0, vget(events, 0) / vget(xb, 0));
-    for (t = 1; t < range_t; t++) 
-        vset(model->cbasehazard, t, vget(model->cbasehazard, t-1) + vget(events, t) / vget(xb, t));
-
-
-    int j = 0;
-
-    corpus->mark = gsl_vector_calloc(corpus->ndocs);
-    for (d = corpus->ndocs - 1; d >= 0; d--)
+    vset(model->basehazard, 0, vget(events, 0) / vget(xb, 0));
+    for (t = 1; t < range_t; t++)
     {
-        vset(corpus->mark, d, 0);
-        if (d == 0 || corpus->docs[d].t_exit != corpus->docs[d - 1].t_exit)
-        {
-            vset(corpus->mark, d, j + corpus->docs[d].label); //Last patient at this time point - store number of deaths
-            j = 0;
-        }
-        else if (corpus->docs[d].t_exit == corpus->docs[d - 1].t_exit)
-            j += corpus->docs[d].label;
+        vset(model->basehazard, t, vget(events, t) / vget(xb, t));
+        vset(model->cbasehazard, t, vget(model->cbasehazard, t - 1) + vget(events, t) / vget(xb, t));
     }
+
     gsl_vector_free(events);
     gsl_vector_free(xb);
     return(model);
@@ -325,14 +326,14 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
 {    
     double xb2, exb2, exb;
     int d, r;
-    gsl_vector* basehaz = gsl_vector_calloc(model->range_t);
+    
     gsl_vector* xb = gsl_vector_calloc(model->range_t);
     gsl_vector* zbeta = gsl_vector_calloc(corpus->ndocs);
-    gsl_vector_set_zero(basehaz);
+    gsl_vector_set_zero(model->basehazard);
     gsl_vector_set_zero(xb);
     gsl_vector_set_zero(zbeta);
     gsl_blas_dgemv(CblasNoTrans, 1, corpus->zbar, model->topic_beta, 0, zbeta);
-
+       
     exb = 0.0;
     for (d = (corpus->ndocs) - 1; d >= 0; d--)
     {
@@ -351,55 +352,42 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
         //std::cout << " = " << exb << std::endl << " xb " << xb << " xb2 " << xb2;
 
         //std::cout << " = " << xb << std::endl;
-        if (d == 0 || vget(corpus->mark, d) > 0)
+        if (d == 0 || vget(corpus->cmark, d) > 0)
         {
-            for (r = 0; r < vget(corpus->mark, d); r++)
-                vinc(basehaz, corpus->docs[d].t_exit,
+            for (r = 0; r < vget(corpus->cmark, d); r++)
+                vinc(model->basehazard, corpus->docs[d].t_exit,
                 1.0
                 /
                 (exp(vget(xb, corpus->docs[d].t_exit) -
-                        (r / vget(corpus->mark, d)) * exp(exb))
+                        (r / vget(corpus->cmark, d)) * exp(exb))
                 )   ); //efron's method as in survfit4.c in R survival function
-            if (isnan(vget(basehaz, corpus->docs[d].t_exit) || vget(basehaz, corpus->docs[d].t_exit) < 1e-100))
-            {
-                //			std::cout << "Base haz set to 1e-100 because xb == " << xb[ss->times[d] - 1] << " and exb == " << exb << " so basehaz[time_index_exit] ==" << basehaz[time_index_exit] << std::endl;
-                vset(basehaz, corpus->docs[d].t_exit, 1e-100); //log(basehaz) required so a minimum measureable hazard is required to avoid NaN errors.
-            }
             exb = 0.0;
         }
     }
-    vset(model->cbasehazard, 0, vget(basehaz, 0));
+    vset(model->cbasehazard, 0, vget(model->basehazard, 0));
     for (r = 1; r < model->range_t; r++)
-        vset(model->cbasehazard, r, vget(model->cbasehazard, r - 1) + vget(basehaz, r));
-    gsl_vector_free(xb);
-    gsl_vector_free(basehaz);
+    {
+        if (isnan(vget(model->basehazard,r) || vget(model->basehazard, r) < 1e-100))
+        {
+            //			std::cout << "Base haz set to 1e-100 because xb == " << xb[ss->times[d] - 1] << " and exb == " << exb << " so basehaz[time_index_exit] ==" << basehaz[time_index_exit] << std::endl;
+            vset(model->basehazard, r, 1e-100); //log(basehaz) required so a minimum measureable hazard is required to avoid NaN errors.
+        }
+        vset(model->cbasehazard, r, vget(model->cbasehazard, r - 1) + vget(model->basehazard, r));
+    }
+    gsl_vector_free(xb);;
     gsl_vector_free(zbeta);
 };
 
 
 double cstat(corpus* corpus, llna_model* model)
 {
-    int d, count = 1;
     int nd = corpus->ndocs;
     double num = 0.0, den = 0.0;
-    gsl_vector* mark = gsl_vector_calloc(nd);
     gsl_vector* zbeta = gsl_vector_calloc(nd);
-    gsl_vector_set_zero(mark);
     gsl_vector_set_zero(zbeta);
-        
-    vset(mark, nd - 1, 1.0);
-    for (d = nd - 2; d >= 0; d--)
-    {
-        if (corpus->docs[d].t_exit == corpus->docs[d + 1].t_exit) //assume sorted by time, so calculate the number needed to jump to next increment in time
-            count++;
-        else
-            count = 1;
-        vset(mark, d, count);
-    }
- 
     gsl_blas_dgemv(CblasNoTrans, 1, corpus->zbar, model->topic_beta, 0, zbeta);
 
-#pragma omp parallel reduction(+:num,den) default(none) shared(zbeta, mark, nd, corpus)
+#pragma omp parallel reduction(+:num,den) default(none) shared(zbeta, nd, corpus)
     {
         int dl, ddl;
         int size = omp_get_num_threads(); // get total number of processes
@@ -409,7 +397,7 @@ double cstat(corpus* corpus, llna_model* model)
         {
             if (corpus->docs[dl].label > 0)
             {
-                for (ddl = dl + vget(mark, dl); ddl < nd; ddl++)
+                for (ddl = dl + (int)  vget(corpus->cmark, dl); ddl < nd; ddl++)
                 {
                     if (corpus->docs[dl].t_exit >= corpus->docs[ddl].t_enter)
                     {
@@ -425,11 +413,47 @@ double cstat(corpus* corpus, llna_model* model)
             }
         }
     }
-    gsl_vector_free(mark);
     gsl_vector_free(zbeta);
-    return(num / den);
+    return((double) num / (double) den);
 }
-
+/*
+void permute_groups(corpus* corpus)
+{
+    //Allocate each person to a random subset for distributed cox regression
+    int ngroups = omp_get_num_procs();
+    gsl_rng* r = gsl_rng_alloc(gsl_rng_taus);
+    gsl_rng_set(r, (unsigned long) time(NULL));
+    gsl_vector* random = gsl_vector_calloc(corpus->ndocs);
+    gsl_vector* permuted = gsl_vector_calloc(corpus->ndocs);
+    for (int d = 0; d < corpus->ndocs; d++)
+    {
+        vset(random, d, gsl_rng_uniform(r));
+        vset(permuted, d, d);
+    }
+    gsl_sort_vector2(random, permuted);
+    int group_length = ceil((double)corpus->ndocs / (double) ngroups);
+    gsl_matrix_set_all(corpus->group, corpus->ndocs);
+    gsl_vector* temp = gsl_vector_calloc(group_length);
+    int cumulative = 0;
+    for (int g = 0;  g < ngroups; g++)
+    {
+        for (int d = 0; d < group_length; d++)
+        {
+            if (cumulative >= corpus->ndocs) continue;
+            vset(temp, d, vget(permuted, cumulative));
+            cumulative++;
+        }
+        gsl_sort_vector(temp);
+        gsl_matrix_set_col(corpus->group, g, temp);
+        for (int d = 0; d < group_length; d++)
+            if (mget(corpus->group, d, g) >= corpus->ndocs) mset(corpus->group, d, g, -1);
+    }
+    gsl_rng_free(r);
+    gsl_vector_free(temp);
+    gsl_vector_free(random);
+    gsl_vector_free(permuted);
+}
+*/
 
 void em(char* dataset, int k, char* start, char* dir)
 {
@@ -448,6 +472,11 @@ void em(char* dataset, int k, char* start, char* dir)
     // read the data and make the directory
 
     corpus = read_data(dataset);
+    if (corpus == NULL)
+    {
+        printf("Unable to read data\n");
+        return;
+    }
     //mkdir(dir, S_IRUSR|S_IWUSR|S_IXUSR);
     int chk = 1;
     if (_mkdir(dir) != 0)
@@ -483,13 +512,15 @@ void em(char* dataset, int k, char* start, char* dir)
     // run em
 
     model = em_initial_model(k, corpus, start);
+    if (model == NULL)
+        return;
 	printf("model initialised\n");
     ss = new_llna_ss(model);
-	printf("New ss");
+	printf("New ss\t");
     corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
-	printf("gsl allocated");
+	printf("gsl allocated\t");
     time(&t1);
     init_temp_vectors(model->k-1); // !!! hacky
     iteration = 0;
@@ -498,39 +529,95 @@ void em(char* dataset, int k, char* start, char* dir)
 
     do
     {
+        if (convergence <= model->em_convergence && iteration > 0)
+        {
+            if (model->em_convergence > PARAMS.em_convergence)  model->em_convergence /= 10;
+            if (model->var_convergence > PARAMS.var_convergence)  model->var_convergence /= 10;
+            if (model->surv_convergence > PARAMS.surv_convergence)  model->surv_convergence /= 10;
+            if (model->cg_convergence > PARAMS.cg_convergence)  model->cg_convergence /= 10;
+
+        }
+
         printf("***** EM ITERATION %d *****\n", iteration);
 
         expectation(corpus, model, ss, &avg_niter, &lhood,
                     corpus_lambda, corpus_nu, corpus_phi_sum,
                     reset_var, &converged_pct);
         time(&t2);
+        printf("Expectation likelihood %5.5e \t ", lhood);
+        printf("%5.0f Documents converged\n", converged_pct*100);
         convergence = (lhood_old - lhood) / lhood_old;
 
-        //Survival supervision
-        double f = 0.0;
-        int cox_iter = 0;
-        cox_iter = cox_reg(model, corpus, &f);
-        fprintf(lhood_fptr, "%ld %5.5e %5.5e %5ld %5.5f %1.5f %1.5f\n",
-                iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, cstat(corpus, model));
 
         time(&t1);
 
-        cumulative_basehazard(corpus, model);
-
-        if (convergence < 0)
+        if (convergence < 0 && iteration!=PARAMS.runin+1)
         {
             reset_var = 0;
+          //  
             if (PARAMS.var_max_iter > 0)
                 PARAMS.var_max_iter += 10;
-            else PARAMS.var_convergence /= 10;
+            else model->var_convergence /= 10;
         }
         else
         {
             maximization(model, ss);
+            //Survival supervision
+            double max_ss = 0.0;
+            int base_index = 0;
+            gsl_vector* zsum = gsl_vector_calloc(model->k);
+            col_sum(corpus->zbar, zsum);
+            for (int i = 0; i < model->k; i++)
+            {
+                if (max_ss < vget(zsum, i))
+                {
+                    base_index = i;
+                    max_ss = vget(zsum, i);
+                }
+            }
+
+            double f = 0.0;
+
+            int cox_iter = 0;
+            gsl_vector_set_zero(model->topic_beta);
+          //  if (iteration >= PARAMS.runin)
+         //   {
+               // base_index = k-1;
+
+                cox_iter=cox_reg_dist(model, corpus, &f, base_index);
+                cumulative_basehazard(corpus, model);
+                vprint(model->topic_beta);
+                printf("Cox liklihood %5.5e in an average of %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
+         //   }
+
+            //permute_groups(corpus);
+            //    int nthreads = omp_get_num_procs();
+
+            //gsl_vector* beta = gsl_vector_calloc(model->k);
+            //for (int i = 0; i < model->k; i++)
+            //    vset(beta, i, vget(model->topic_beta, i));
+            //gsl_vector_set_zero(model->topic_beta);
+
+           
+
+
+//#pragma omp parallel reduction(+:f, cox_iter) default(none) shared(corpus, model, PARAMS, base_index)  firstprivate(beta)
+//            {
+//                int group = omp_get_thread_num(); // get rank of current
+//                cox_iter = cox_reg_dac(model, corpus, &f, group, base_index, beta);
+//#pragma omp critical
+//                for (int i = 0; i < model->k; i++)
+//                    vinc(model->topic_beta, i, vget(beta, i) / (double) model->k);
+//            }
+//            gsl_vector_free(beta);
+
+         //   cox_iter = cox_reg(model, corpus, &f, base_index);
+
+            fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
+                iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, cstat(corpus, model));
             lhood_old = lhood;
             reset_var = 1;
-            printf("Expectation likelihood %5.5e \t Cox liklihood %5.5e in %d iterations \t C statistic = %f\n", lhood, f, cox_iter, cstat(corpus, model));
-            if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
+           /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
             {
                 sprintf(string, "%s/%03d", dir, iteration);
                 write_llna_model(model, string);
@@ -538,8 +625,9 @@ void em(char* dataset, int k, char* start, char* dir)
                 printf_matrix(string, corpus_lambda);
                 sprintf(string, "%s/%03d-nu.dat", dir, iteration);
                 printf_matrix(string, corpus_nu);
-            }
+            }*/
             iteration++;
+
         }
 
         fflush(lhood_fptr);
@@ -551,14 +639,19 @@ void em(char* dataset, int k, char* start, char* dir)
 
     printf("Converged: \n Final likelihood %5.5e \t final C statistic = %f\n", lhood, cstat(corpus, model));
 
-
     sprintf(string, "%s/final", dir);
     write_llna_model(model, string);
     sprintf(string, "%s/final-lambda.dat", dir);
     printf_matrix(string, corpus_lambda);
     sprintf(string, "%s/final-nu.dat", dir);
     printf_matrix(string, corpus_nu);
+    sprintf(string, "%s/final-zbar.dat", dir);
+    printf_matrix(string, corpus->zbar);
+
     fclose(lhood_fptr);
+    gsl_matrix_free(corpus_lambda);
+    gsl_matrix_free(corpus_nu);
+    gsl_matrix_free(corpus_phi_sum);
 }
 
 
@@ -575,6 +668,10 @@ void inference(char* dataset, char* model_root, char* out)
     // read the data and model
     corpus * corpus = read_data(dataset);
     llna_model * model = read_llna_model(model_root);
+    if (model == NULL)
+    {
+        return;
+    }
     gsl_vector * lhood = gsl_vector_alloc(corpus->ndocs);
     gsl_matrix * corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
     gsl_matrix * corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
@@ -589,6 +686,10 @@ void inference(char* dataset, char* model_root, char* out)
     {
         doc doc = corpus->docs[i];
         llna_var_param * var = new_llna_var_param(doc.nterms, model->k);
+        if (var == NULL)
+        {
+            return;
+        }
         init_var_unif(var, &doc, model);
 
         vset(lhood, i, var_inference(var, &doc, model));
@@ -627,14 +728,20 @@ void within_doc_split(char* dataset, char* src_data, char* dest_data, double pro
 
     corp = read_data(dataset);
     dest_corp = malloc(sizeof(corpus));
-    printf("splitting %d docs\n", corp->ndocs);
-    dest_corp->docs = malloc(sizeof(doc) * corp->ndocs);
-    dest_corp->nterms = corp->nterms;
-    dest_corp->ndocs = corp->ndocs;
-    for (i = 0; i < corp->ndocs; i++)
-        split(&(corp->docs[i]), &(dest_corp->docs[i]), prop);
-    write_corpus(dest_corp, dest_data);
-    write_corpus(corp, src_data);
+    if (dest_corp != NULL)
+    {
+        printf("splitting %d docs\n", corp->ndocs);
+        dest_corp->docs = malloc(sizeof(doc) * corp->ndocs);
+        if (dest_corp->docs != NULL)
+        {
+            dest_corp->nterms = corp->nterms;
+            dest_corp->ndocs = corp->ndocs;
+            for (i = 0; i < corp->ndocs; i++)
+                split(&(corp->docs[i]), &(dest_corp->docs[i]), prop);
+            write_corpus(dest_corp, dest_data);
+            write_corpus(corp, src_data);
+        }
+    }
 }
 
 

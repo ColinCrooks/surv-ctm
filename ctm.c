@@ -27,6 +27,7 @@
 
 #include <stdlib.h>
 #include <gsl/gsl_rng.h>
+#include <gsl/gsl_permutation.h>
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
 #include <time.h>
@@ -43,15 +44,25 @@
 llna_model* new_llna_model(int ntopics, int nterms, int range_t)
 {
     llna_model* model = malloc(sizeof(llna_model));
-    model->k = ntopics;
-    model->range_t = range_t;
-    model->mu = gsl_vector_calloc(ntopics - 1);
-    model->cov = gsl_matrix_calloc(ntopics-1, ntopics-1);
-    model->inv_cov = gsl_matrix_calloc(ntopics-1, ntopics-1);
-    model->log_omega = gsl_matrix_calloc(ntopics, nterms);
-    model->topic_beta = gsl_vector_calloc(ntopics);
-    model->cbasehazard = gsl_vector_calloc(range_t);
-    return(model);
+    if (model != NULL)
+    {
+        model->k = ntopics;
+        model->em_convergence = 0.1;
+        model->var_convergence = 0.1;
+        model->cg_convergence = 0.1;
+        model->surv_convergence = 0.1;
+        model->range_t = range_t;
+        model->mu = gsl_vector_calloc(ntopics - 1);
+        model->cov = gsl_matrix_calloc(ntopics - 1, ntopics - 1);
+        model->inv_cov = gsl_matrix_calloc(ntopics - 1, ntopics - 1);
+        model->log_omega = gsl_matrix_calloc(ntopics, nterms);
+        model->topic_beta = gsl_vector_calloc(ntopics);
+        model->cbasehazard = gsl_vector_calloc(range_t);
+        model->basehazard = gsl_vector_calloc(range_t);
+        return(model);
+    }
+    else
+        return NULL;
 }
 
 
@@ -64,12 +75,17 @@ llna_ss * new_llna_ss(llna_model* model)
 {
     llna_ss * ss;
     ss = malloc(sizeof(llna_ss));
-    ss->mu_ss = gsl_vector_calloc(model->k-1);
-    ss->cov_ss = gsl_matrix_calloc(model->k-1, model->k-1);
-    ss->omega_ss = gsl_matrix_calloc(model->k, model->log_omega->size2);
-    ss->ndata = 0;
-    reset_llna_ss(ss);
-    return(ss);
+    if (ss != NULL)
+    {
+        ss->mu_ss = gsl_vector_calloc(model->k - 1);
+        ss->cov_ss = gsl_matrix_calloc(model->k - 1, model->k - 1);
+        ss->omega_ss = gsl_matrix_calloc(model->k, model->log_omega->size2);
+        ss->ndata = 0;
+        reset_llna_ss(ss);
+        return(ss);
+    }
+    else
+        return NULL;
 }
 
 
@@ -106,6 +122,8 @@ llna_model* corpus_init(int ntopics, corpus* corpus)
 {
     int range_t = 1 + corpus->min_t - corpus->max_t;
     llna_model* model = new_llna_model(ntopics, corpus->nterms, range_t);
+    if (model == NULL)
+        return NULL;
     gsl_rng * r = gsl_rng_alloc(gsl_rng_taus);
     doc* doc;
     int i, k, n, d, t;
@@ -135,7 +153,7 @@ llna_model* corpus_init(int ntopics, corpus* corpus)
         // seed
         for (i = 0; i < NUM_INIT; i++)
         {
-            d = floor(gsl_rng_uniform(r)*corpus->ndocs);
+            d = (int) floor(gsl_rng_uniform(r)*corpus->ndocs);
             printf("initialized with document %d\n", d);
             doc = &(corpus->docs[d]);
             for (n = 0; n < doc->nterms; n++)
@@ -176,13 +194,18 @@ llna_model* random_init(int ntopics, int nterms, int range_t)
     int i, j, t;
     double sum, val;
     llna_model* model = new_llna_model(ntopics, nterms, range_t);
+    if (model == NULL)
+    {
+        return NULL;
+    }
     gsl_rng * r = gsl_rng_alloc(gsl_rng_taus);
   // long t1;
    // (void) time(&t1);
     // !!! DEBUG
    // gsl_rng_set(r, (long) 1115574245);
    // printf("RANDOM SEED = %ld\n", t1);
-    gsl_rng_set(r, time(NULL));
+    gsl_rng_set(r, (unsigned long) time(NULL));
+
 
     for (i = 0; i < ntopics-1; i++)
     {
@@ -227,9 +250,21 @@ llna_model* read_llna_model(char * root)
     sprintf(filename, "%s-param.txt", root);
     printf("reading params from %s\n", filename);
     fileptr = fopen(filename, "r");
-    fscanf(fileptr, "num_topics %d\n", &ntopics);
-    fscanf(fileptr, "num_terms %d\n", &nterms);
-    fscanf(fileptr, "Range of times %d\n", &range_t);
+    if (fscanf(fileptr, "num_topics %d\n", &ntopics) == 0)
+    {
+        printf("Error reading number of topics\n");
+        return NULL;
+    }
+    if(fscanf(fileptr, "num_terms %d\n", &nterms)==0)
+    {
+        printf("Error reading number of terms\n");
+        return NULL ;
+    };
+    if(fscanf(fileptr, "Range of times %d\n", &range_t)==0)
+    {
+        printf("Error reading range of times\n");
+        return NULL ;
+    };
     fclose(fileptr);
     printf("%d topics, %d terms\n", ntopics, nterms);
     // allocate model
@@ -244,7 +279,11 @@ llna_model* read_llna_model(char * root)
     scanf_matrix(filename, model->inv_cov);
     sprintf(filename, "%s-log-det-inv-cov.dat", root);
     fileptr = fopen(filename, "r");
-    fscanf(fileptr, "%lf\n", &(model->log_det_inv_cov));
+    if(fscanf(fileptr, "%lf\n", &(model->log_det_inv_cov))==0)
+    {
+        printf("Error reading log det inv cov\n");
+        return NULL;
+    };    
     fclose(fileptr);
     // read topic matrix
     printf("reading topics\n");
@@ -252,10 +291,10 @@ llna_model* read_llna_model(char * root)
     scanf_matrix(filename, model->log_omega);
     printf("reading topic coefficients\n");
     sprintf(filename, "%s-topic-beta.dat", root);
-    scanf_matrix(filename, model->topic_beta);
+    scanf_vector(filename, model->topic_beta);
     printf("reading cumulative baseline hazard\n");
     sprintf(filename, "%s-cum-baseline-hazard.dat", root);
-    scanf_matrix(filename, model->cbasehazard);
+    scanf_vector(filename, model->cbasehazard);
     return(model);
 }
 

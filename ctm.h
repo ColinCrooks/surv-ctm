@@ -37,6 +37,10 @@
 typedef struct llna_model
 {
     int k;
+    double em_convergence;
+    double var_convergence;
+    double cg_convergence;
+    double surv_convergence;
     gsl_matrix * log_omega;
     gsl_vector * mu;
     gsl_matrix * inv_cov;
@@ -44,6 +48,7 @@ typedef struct llna_model
     double log_det_inv_cov;
     gsl_vector* topic_beta;
     gsl_vector* cbasehazard;
+    gsl_vector* basehazard;
     int range_t;
 } llna_model;
 

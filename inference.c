@@ -61,8 +61,11 @@ void init_temp_vectors(int size)
 {
     int i;
     temp = malloc(sizeof(gsl_vector *)*ntemp);
-    for (i = 0; i < 4; i++)
-        temp[i] = gsl_vector_alloc(size);
+    if (temp != NULL && ntemp > 0)
+    {
+        for (i = 0; i < 4; i++)
+            temp[i] = (int) gsl_vector_alloc(size);
+    }
 }
 
 
@@ -91,7 +94,7 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
 
     // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu)
 
-    double lhood  = (0.5) * mod->log_det_inv_cov + (0.5) * (mod->k-1);
+    double lhood  = (0.5) * mod->log_det_inv_cov + (0.5) * ((double) mod->k-1);
     for (i = 0; i < k-1; i++)
     {
         double v = - (0.5) * vget(var->nu, i) * mget(mod->inv_cov,i, i);
@@ -119,7 +122,7 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
             double log_phi_ij = mget(var->log_phi, i, j);
             if (phi_ij > 0)
             {
-                vinc(var->topic_scores, j, phi_ij * doc->count[i]);
+                vinc(var->topic_scores, j, phi_ij * (double) doc->count[i]);
                 lhood +=
                     doc->count[i] * phi_ij *
                     (vget(var->lambda, j) +
@@ -179,10 +182,11 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     {
         double temp = 0.0;
         for (i = 0; i < k; i++)
-            temp += exp(mget(var->log_phi, n, i) + vget(mod->topic_beta, i) * doc->count[n] / doc->total);
+            temp += mget(var->phi, n, i) * exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
         cbhz_prod *= temp;
     }
-
+    if (doc->label>0 && doc->t_exit < mod->range_t - 1)
+        lhood +=safe_log(vget(mod->basehazard, doc->t_exit));
     lhood -= cbhz_prod;
     var->lhood = lhood;
     assert(!isnan(var->lhood));
@@ -247,13 +251,14 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
     double log_sum_n = 0, temp = 0;
 
     gsl_vector* cbhz_params = gsl_vector_calloc(K);
-
+    gsl_vector_set_zero(cbhz_params);
     double cbhz_prod = 1.0;
     for (n = 0; n < doc->nterms; n++)
     {
         temp = 0.0;
         for (i = 0; i < K; i++)
-            temp += exp( mget(var->log_phi, n, i)+ vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
+            temp += mget(var->phi, n, i) * exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
+        assert(!isnan(temp));
         cbhz_prod *= temp;
     }
 
@@ -266,7 +271,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
         for (i = 0; i < K; i++)
         {
             vset(cbhz_params, i, exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)); // Only exponentiate once
-            temp += exp(mget(var->log_phi, n, i)) * vget(cbhz_params, i);
+            temp += mget(var->phi, n, i) * vget(cbhz_params, i);
         }
         cbhz_prod /= temp; //remove the contribution of word n
 
@@ -276,7 +281,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
             mset(var->log_phi, n, i,
                 vget(var->lambda, i) + mget(mod->log_omega, i, doc->word[n]) 
                 + ((double) doc->label * vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)
-                - (cbhz_prod * vget(cbhz_params,i)));
+                - (vget(mod->cbasehazard, doc->t_exit) * cbhz_prod * vget(cbhz_params,i)));
             if (i == 0)
                 log_sum_n = mget(var->log_phi, n, i);
             else
@@ -411,7 +416,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     gsl_vector* x = gsl_vector_calloc(mod->k-1);
     for (i = 0; i < mod->k-1; i++) vset(x, i, vget(var->lambda, i));
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 1e-3);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 1e-2);
     do
     {
         iter++;
@@ -527,8 +532,8 @@ void opt_nu_i(int i, llna_var_param * var, llna_model * mod, doc * d)
             log_nu_i = safe_log(init_nu);
             nu_i = init_nu;
         }
-        // f = f_nu_i(nu_i, i, var, mod, d);
-        // printf("%5.5f  %5.5f \n", nu_i, f);
+        //double f = f_nu_i(nu_i, i, var, mod, d);
+       //  printf("%5.5f  %5.5f \n", nu_i, f);
         df = df_nu_i(nu_i, i, var, mod, d);
         d2f = d2f_nu_i(nu_i, i, var, mod, d);
         log_nu_i = log_nu_i - (df*nu_i)/(d2f*nu_i*nu_i+df*nu_i);
@@ -548,7 +553,7 @@ void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
     int i;
 
     gsl_matrix_set_all(var->phi, 1.0/mod->k);
-    gsl_matrix_set_all(var->log_phi, -safe_log((double) mod->k));
+    gsl_matrix_set_all(var->log_phi, safe_log((double) mod->k));
     var->zeta = 10;
     for (i = 0; i < mod->k-1; i++)
     {
@@ -583,13 +588,18 @@ void init_var(llna_var_param * var, doc * doc, llna_model * mod, gsl_vector *lam
 llna_var_param * new_llna_var_param(int nterms, int k)
 {
     llna_var_param * ret = malloc(sizeof(llna_var_param));
-    ret->lambda = gsl_vector_alloc(k);
-    ret->nu = gsl_vector_alloc(k);
-    ret->phi = gsl_matrix_alloc(nterms, k);
-    ret->log_phi = gsl_matrix_alloc(nterms, k);
-    ret->zeta = 0;
-    ret->topic_scores = gsl_vector_alloc(k);
-    return(ret);
+    if (ret != NULL)
+    {
+        ret->lambda = gsl_vector_alloc(k);
+        ret->nu = gsl_vector_alloc(k);
+        ret->phi = gsl_matrix_alloc(nterms, k);
+        ret->log_phi = gsl_matrix_alloc(nterms, k);
+        ret->zeta = 0;
+        ret->topic_scores = gsl_vector_alloc(k);
+        return(ret);
+    }
+    else
+        return NULL;
 }
 
 
@@ -611,10 +621,6 @@ double var_inference(llna_var_param * var,
     double lhood_old = 0;
     double convergence;
 
-    if (var->niter <= PARAMS.runin + 1)
-        lhood_bnd(var, doc, mod);
-    else 
-        lhood_bnd_surv(var, doc, mod);
     do
     {
         var->niter++;
@@ -624,17 +630,17 @@ double var_inference(llna_var_param * var,
         opt_zeta(var, doc, mod);
         opt_nu(var, doc, mod);
         opt_zeta(var, doc, mod);
-        if (var->niter <= PARAMS.runin)
-        {
-            opt_phi(var, doc, mod);
-            lhood_old = var->lhood;
-            lhood_bnd(var, doc, mod);
-        }
-        else
+        if (var->niter > PARAMS.runin)
         {
             opt_phi_surv(var, doc, mod);
             lhood_old = var->lhood;
             lhood_bnd_surv(var, doc, mod);
+        }
+        else
+        {
+            opt_phi(var, doc, mod);
+            lhood_old = var->lhood;
+            lhood_bnd(var, doc, mod);
         }
 
 
@@ -645,10 +651,10 @@ double var_inference(llna_var_param * var,
             printf("WARNING: iter %05d %5.5f > %5.5f\n",
                    var->niter, lhood_old, var->lhood); */
     }
-    while ((convergence > PARAMS.var_convergence) &&
+    while ((convergence > mod->var_convergence) &&
            ((PARAMS.var_max_iter < 0) || (var->niter < PARAMS.var_max_iter)));
 
-    if (convergence > PARAMS.var_convergence) var->converged = 0;
+    if (convergence > mod->var_convergence) var->converged = 0;
     else var->converged = 1;
 
     return(var->lhood);
@@ -749,31 +755,36 @@ double sample_lhood(llna_var_param* var, doc* d, llna_model* mod)
 {
     int nsamples, i, n;
 	double *eta = (double *) calloc(mod->k,sizeof(double));
-    double log_prob, sum = 0, v;
-    gsl_rng * r = gsl_rng_alloc(gsl_rng_taus);
-
-    gsl_rng_set(r, (long) 1115574245);
-    nsamples = 10000;
-
-    // for each sample
-    for (n = 0; n < nsamples; n++)
+    if (eta != NULL)
     {
-        // sample eta from q(\eta)
-        for (i = 0; i < mod->k; i++)
+        double log_prob, sum = 0, v;
+        gsl_rng* r = gsl_rng_alloc(gsl_rng_taus);
+
+        gsl_rng_set(r, (long)1115574245);
+        nsamples = 10000;
+
+        // for each sample
+        for (n = 0; n < nsamples; n++)
         {
-            v = gsl_ran_gaussian_ratio_method(r, sqrt(vget(var->nu,i)));
-            eta[i] = v + vget(var->lambda, i);
+            // sample eta from q(\eta)
+            for (i = 0; i < mod->k; i++)
+            {
+                v = gsl_ran_gaussian_ratio_method(r, sqrt(vget(var->nu, i)));
+                eta[i] = v + vget(var->lambda, i);
+            }
+            // compute p(w | \eta) - q(\eta)
+            log_prob = sample_term(var, d, mod, eta);
+            // update log sum
+            if (n == 0) sum = log_prob;
+            else sum = log_sum(sum, log_prob);
+            // printf("%5.5f\n", (sum - log(n+1)));
         }
-        // compute p(w | \eta) - q(\eta)
-        log_prob = sample_term(var, d, mod, eta);
-        // update log sum
-        if (n == 0) sum = log_prob;
-        else sum = log_sum(sum, log_prob);
-        // printf("%5.5f\n", (sum - log(n+1)));
+        free(eta);
+        sum = sum - safe_log((double)nsamples);
+        return(sum);
     }
-	free(eta);
-    sum = sum - safe_log((double) nsamples);
-    return(sum);
+    else
+        return DBL_MAX;
 }
 
 
@@ -791,50 +802,55 @@ void expected_theta(llna_var_param *var, doc* d, llna_model *mod, gsl_vector* va
     double *eta = (double *) calloc(mod->k,sizeof(double));
 	double *theta = (double *) calloc(mod->k, sizeof(double));
 	double *e_theta = (double *)calloc(mod->k, sizeof(double));
-    double sum, w, v;
-    gsl_rng * r = gsl_rng_alloc(gsl_rng_taus);
-
-    gsl_rng_set(r, (long) 1115574245);
-    nsamples = 100;
-
-    // initialize e_theta
-    for (i = 0; i < mod->k; i++) e_theta[i] = -1;
-    // for each sample
-    for (n = 0; n < nsamples; n++)
+    if (eta != NULL && theta != NULL && e_theta != NULL)
     {
-        // sample eta from q(\eta)
+        double sum, w, v;
+        gsl_rng* r = gsl_rng_alloc(gsl_rng_taus);
+
+        gsl_rng_set(r, (long)1115574245);
+        nsamples = 100;
+
+        // initialize e_theta
+        for (i = 0; i < mod->k; i++) e_theta[i] = -1;
+        // for each sample
+        for (n = 0; n < nsamples; n++)
+        {
+            // sample eta from q(\eta)
+            for (i = 0; i < mod->k; i++)
+            {
+                v = gsl_ran_gaussian_ratio_method(r, sqrt(vget(var->nu, i)));
+                eta[i] = v + vget(var->lambda, i);
+            }
+            // compute p(w | \eta) - q(\eta)
+            w = sample_term(var, d, mod, eta);
+            // compute theta
+            sum = 0;
+            for (i = 0; i < mod->k; i++)
+            {
+                theta[i] = exp(eta[i]);
+                sum += theta[i];
+            }
+            for (i = 0; i < mod->k; i++)
+                theta[i] = theta[i] / sum;
+            // update e_theta
+            for (i = 0; i < mod->k; i++)
+                e_theta[i] = log_sum(e_theta[i], w + safe_log(theta[i]));
+        }
+        // normalize e_theta and set return vector
+        sum = -1;
         for (i = 0; i < mod->k; i++)
         {
-            v = gsl_ran_gaussian_ratio_method(r, sqrt(vget(var->nu,i)));
-            eta[i] = v + vget(var->lambda, i);
-        }
-        // compute p(w | \eta) - q(\eta)
-        w = sample_term(var, d, mod, eta);
-        // compute theta
-        sum = 0;
-        for (i = 0; i < mod->k; i++)
-        {
-            theta[i] = exp(eta[i]);
-            sum += theta[i];
+            e_theta[i] = e_theta[i] - safe_log(nsamples);
+            sum = log_sum(sum, e_theta[i]);
         }
         for (i = 0; i < mod->k; i++)
-            theta[i] = theta[i] / sum;
-        // update e_theta
-        for (i = 0; i < mod->k; i++)
-            e_theta[i] = log_sum(e_theta[i], w +  safe_log(theta[i]));
+            vset(val, i, exp(e_theta[i] - sum));
+        free(eta);
+        free(theta);
+        free(e_theta);
     }
-    // normalize e_theta and set return vector
-    sum = -1;
-    for (i = 0; i < mod->k; i++)
-    {
-        e_theta[i] = e_theta[i] - safe_log(nsamples);
-        sum = log_sum(sum, e_theta[i]);
-    }
-    for (i = 0; i < mod->k; i++)
-        vset(val, i, exp(e_theta[i] - sum));
-	free(eta);
-	free(theta);
-	free(e_theta);
+    else
+        return;
 }
 
 /*
