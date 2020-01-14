@@ -358,7 +358,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 		newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double) nvar - 1.0));
 		for (int bn = 0; bn < nvar; bn++)
 		{
-			if (bn == base_index) continue;
+			//if (bn == base_index) continue;
 			newlk -= (vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty);
 		}	
 		if (isn(newlk))

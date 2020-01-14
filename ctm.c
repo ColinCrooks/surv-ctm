@@ -48,9 +48,10 @@ llna_model* new_llna_model(int ntopics, int nterms, int range_t)
     {
         model->k = ntopics;
         model->em_convergence = 0.1;
-        model->var_convergence = 0.1;
-        model->cg_convergence = 0.1;
-        model->surv_convergence = 0.1;
+        model->var_convergence = 0.01;
+        model->cg_convergence = 0.01;
+        model->surv_convergence = 0.01;
+        model->iteration = 0;
         model->range_t = range_t;
         model->mu = gsl_vector_calloc(ntopics - 1);
         model->cov = gsl_matrix_calloc(ntopics - 1, ntopics - 1);
@@ -120,7 +121,7 @@ void write_ss(llna_ss * ss)
 
 llna_model* corpus_init(int ntopics, corpus* corpus)
 {
-    int range_t = 1 + corpus->min_t - corpus->max_t;
+    int range_t = 1 + corpus->max_t - corpus->min_t;
     llna_model* model = new_llna_model(ntopics, corpus->nterms, range_t);
     if (model == NULL)
         return NULL;

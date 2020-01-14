@@ -37,6 +37,7 @@
 typedef struct llna_model
 {
     int k;
+    int iteration;
     double em_convergence;
     double var_convergence;
     double cg_convergence;

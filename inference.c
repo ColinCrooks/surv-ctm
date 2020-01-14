@@ -416,7 +416,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     gsl_vector* x = gsl_vector_calloc(mod->k-1);
     for (i = 0; i < mod->k-1; i++) vset(x, i, vget(var->lambda, i));
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 1e-2);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, PARAMS.cg_convergence, PARAMS.cg_convergence);
     do
     {
         iter++;
@@ -623,14 +623,13 @@ double var_inference(llna_var_param * var,
 
     do
     {
-        var->niter++;
 
         opt_zeta(var, doc, mod);
         opt_lambda(var, doc, mod);
         opt_zeta(var, doc, mod);
         opt_nu(var, doc, mod);
         opt_zeta(var, doc, mod);
-        if (var->niter > PARAMS.runin)
+        if (mod->iteration >= PARAMS.runin)
         {
             opt_phi_surv(var, doc, mod);
             lhood_old = var->lhood;
@@ -646,6 +645,7 @@ double var_inference(llna_var_param * var,
 
         convergence = fabs((lhood_old - var->lhood) / lhood_old);
         // printf("lhood = %8.6f (%7.6f)\n", var->lhood, convergence);
+        var->niter++;
 
       /*  if ((lhood_old > var->lhood) && (var->niter != PARAMS.runin+1 && var->niter > 1 ))
             printf("WARNING: iter %05d %5.5f > %5.5f\n",

@@ -52,12 +52,15 @@ corpus* read_data(const char* data_filename)
         int pos = 0;
         char* line[5000]; //fscanf(fileptr, "%d,%d,%d,%d", &label, &t_enter, &t_exit, &length) != EOF)
         char* linefeed = line;
-        while (fgets(linefeed, sizeof(char) * 5000, fileptr) != NULL)
+        while (fgets(linefeed, sizeof(char) * 10000, fileptr) != NULL)
         {
             //printf("%s", linefeed);
             if (sscanf(linefeed, "%10d,%10d,%10d,%10d%n", &label, &t_enter, &t_exit, &length, &pos) == 0)
             {
                 printf("Did not read expected first 4 fields (label, start date, exit date, number of codes) from row %d \n", nd);
+                printf("%10d,%10d,%10d,%10d", label, t_enter, t_exit, length);
+                linefeed += pos;
+                continue;
             }
             linefeed += pos;
             //printf("Document number:%d read in %d digits ", nd, pos);
@@ -92,6 +95,7 @@ corpus* read_data(const char* data_filename)
                         if (sscanf(linefeed, " ,%10d:%10d%n", &word, &count, &inc) ==0)
                         {
                             printf("Did not read expected duple fields (word, count) from row %d word %d\n", nd, n);
+                            printf("%10d,%10d,%10d,%10d", label, t_enter, t_exit, length);
                         }
 
                         linefeed += inc;

@@ -351,18 +351,36 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
 
         //std::cout << " = " << exb << std::endl << " xb " << xb << " xb2 " << xb2;
 
-        //std::cout << " = " << xb << std::endl;
         if (d == 0 || vget(corpus->cmark, d) > 0)
+        {
+            for (r = 0; r < vget(corpus->cmark, d); r++)
+                vinc(model->basehazard, corpus->docs[d].t_exit,
+                    1.0
+                    /
+                    (
+                        (1.0 + exp(vget(xb, corpus->docs[d].t_exit)) - exp(exb)) + 
+                        (
+                            ((vget(corpus->cmark, d) - r) 
+                            / vget(corpus->cmark, d)) 
+                            * exp(exb)
+                        )
+                    )
+                ); //efron's method as in survfit4.c in R survival function
+            exb = 0.0;
+        }
+
+        //std::cout << " = " << xb << std::endl;
+     /*   if (d == 0 || vget(corpus->cmark, d) > 0)
         {
             for (r = 0; r < vget(corpus->cmark, d); r++)
                 vinc(model->basehazard, corpus->docs[d].t_exit,
                 1.0
                 /
                 (exp(vget(xb, corpus->docs[d].t_exit) -
-                        (r / vget(corpus->cmark, d)) * exp(exb))
+                        ((r / vget(corpus->cmark, d)) * exp(exb)))
                 )   ); //efron's method as in survfit4.c in R survival function
             exb = 0.0;
-        }
+        }*/
     }
     vset(model->cbasehazard, 0, vget(model->basehazard, 0));
     for (r = 1; r < model->range_t; r++)
@@ -373,6 +391,11 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
             vset(model->basehazard, r, 1e-100); //log(basehaz) required so a minimum measureable hazard is required to avoid NaN errors.
         }
         vset(model->cbasehazard, r, vget(model->cbasehazard, r - 1) + vget(model->basehazard, r));
+        if (isnan(vget(model->cbasehazard, r) || vget(model->cbasehazard, r) < 1e-100))
+        {
+            //			std::cout << "Base haz set to 1e-100 because xb == " << xb[ss->times[d] - 1] << " and exb == " << exb << " so basehaz[time_index_exit] ==" << basehaz[time_index_exit] << std::endl;
+            vset(model->cbasehazard, r, 1e-100); //log(basehaz) required so a minimum measureable hazard is required to avoid NaN errors.
+        }
     }
     gsl_vector_free(xb);;
     gsl_vector_free(zbeta);
@@ -459,7 +482,6 @@ void em(char* dataset, int k, char* start, char* dir)
 {
     FILE* lhood_fptr;
     char string[100];
-    int iteration;
     double convergence = 1, lhood = 0, lhood_old = 0;
     corpus* corpus;
     llna_model *model;
@@ -523,71 +545,74 @@ void em(char* dataset, int k, char* start, char* dir)
 	printf("gsl allocated\t");
     time(&t1);
     init_temp_vectors(model->k-1); // !!! hacky
-    iteration = 0;
-    sprintf(string, "%s/%03d", dir, iteration);
+    model->iteration = 0;
+    sprintf(string, "%s/%03d", dir, model->iteration);
     write_llna_model(model, string);
 
     do
     {
-        if (convergence <= model->em_convergence && iteration > 0)
+        if (convergence <= model->em_convergence && model->iteration > 0)
         {
             if (model->em_convergence > PARAMS.em_convergence)  model->em_convergence /= 10;
             if (model->var_convergence > PARAMS.var_convergence)  model->var_convergence /= 10;
             if (model->surv_convergence > PARAMS.surv_convergence)  model->surv_convergence /= 10;
             if (model->cg_convergence > PARAMS.cg_convergence)  model->cg_convergence /= 10;
-
+            if (PARAMS.surv_penalty < 1e6) PARAMS.surv_penalty *= 10;
         }
 
-        printf("***** EM ITERATION %d *****\n", iteration);
-
+        printf("***** EM ITERATION %d *****\n", model->iteration);
+        printf("***** Target convergence = %f\n", model->em_convergence);
         expectation(corpus, model, ss, &avg_niter, &lhood,
                     corpus_lambda, corpus_nu, corpus_phi_sum,
                     reset_var, &converged_pct);
         time(&t2);
         printf("Expectation likelihood %5.5e \t ", lhood);
-        printf("%5.0f Documents converged\n", converged_pct*100);
+        printf("%5.0f percent documents converged\n", converged_pct*100);
         convergence = (lhood_old - lhood) / lhood_old;
 
 
         time(&t1);
 
-        if (convergence < 0 && iteration!=PARAMS.runin+1)
+        if (convergence < 0)
         {
-            reset_var = 0;
-          //  
+            reset_var = 1;
+            gsl_vector_set_zero(model->topic_beta);
+            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10;
             if (PARAMS.var_max_iter > 0)
                 PARAMS.var_max_iter += 10;
             else model->var_convergence /= 10;
         }
         else
         {
-            maximization(model, ss);
-            //Survival supervision
-            double max_ss = 0.0;
-            int base_index = 0;
-            gsl_vector* zsum = gsl_vector_calloc(model->k);
-            col_sum(corpus->zbar, zsum);
-            for (int i = 0; i < model->k; i++)
+            reset_var = 1;
+        }
+        maximization(model, ss);
+
+
+        //Survival supervision
+        double max_ss = 0.0;
+        int base_index = 0;
+        gsl_vector* zsum = gsl_vector_calloc(model->k);
+        col_sum(corpus->zbar, zsum);
+        for (int i = 0; i < model->k; i++)
+        {
+            if (max_ss < vget(zsum, i))
             {
-                if (max_ss < vget(zsum, i))
-                {
-                    base_index = i;
-                    max_ss = vget(zsum, i);
-                }
+                base_index = i;
+                max_ss = vget(zsum, i);
             }
+        }
+        double f = 0.0;
 
-            double f = 0.0;
-
-            int cox_iter = 0;
-            gsl_vector_set_zero(model->topic_beta);
+        int cox_iter = 0;
           //  if (iteration >= PARAMS.runin)
          //   {
                // base_index = k-1;
 
-                cox_iter=cox_reg_dist(model, corpus, &f, base_index);
-                cumulative_basehazard(corpus, model);
-                vprint(model->topic_beta);
-                printf("Cox liklihood %5.5e in an average of %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
+        cox_iter=cox_reg_dist(model, corpus, &f, base_index);
+        cumulative_basehazard(corpus, model);
+        vprint(model->topic_beta);
+        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
          //   }
 
             //permute_groups(corpus);
@@ -613,29 +638,28 @@ void em(char* dataset, int k, char* start, char* dir)
 
          //   cox_iter = cox_reg(model, corpus, &f, base_index);
 
-            fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
-                iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, cstat(corpus, model));
-            lhood_old = lhood;
-            reset_var = 1;
-           /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
-            {
-                sprintf(string, "%s/%03d", dir, iteration);
-                write_llna_model(model, string);
-                sprintf(string, "%s/%03d-lambda.dat", dir, iteration);
-                printf_matrix(string, corpus_lambda);
-                sprintf(string, "%s/%03d-nu.dat", dir, iteration);
-                printf_matrix(string, corpus_nu);
-            }*/
-            iteration++;
+        fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
+            model->iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, cstat(corpus, model));
+        lhood_old = lhood;
+        /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
+        {
+            sprintf(string, "%s/%03d", dir, iteration);
+            write_llna_model(model, string);
+            sprintf(string, "%s/%03d-lambda.dat", dir, iteration);
+            printf_matrix(string, corpus_lambda);
+            sprintf(string, "%s/%03d-nu.dat", dir, iteration);
+            printf_matrix(string, corpus_nu);
+        }*/
+        model->iteration++;
 
-        }
+       
 
         fflush(lhood_fptr);
         reset_llna_ss(ss);
         old_conv = convergence;
     }
-    while ((iteration <= PARAMS.runin + 1) || ((iteration < PARAMS.em_max_iter) &&
-           ((convergence > PARAMS.em_convergence) || (convergence < 0))));
+    while ((model->iteration <= PARAMS.runin + 1) || ((model->iteration < PARAMS.em_max_iter) &&
+           (((fabs(convergence) > PARAMS.em_convergence) ))));
 
     printf("Converged: \n Final likelihood %5.5e \t final C statistic = %f\n", lhood, cstat(corpus, model));
 
