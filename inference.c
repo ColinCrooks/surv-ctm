@@ -146,7 +146,11 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     for (i = 0; i < k - 1; i++)
     {
         double v = -(0.5) * vget(var->nu, i) * mget(mod->inv_cov, i, i);
+<<<<<<< HEAD
+        for (j = 0; j < k - 1; j++)
+=======
         for (j = 0; j < mod->k - 1; j++)
+>>>>>>> acd34b8... Add project files.
         {
             v -= (0.5) *
                 (vget(var->lambda, i) - vget(mod->mu, i)) *
@@ -158,6 +162,31 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     }
 
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
+<<<<<<< HEAD
+    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
+    lhood -= expect_mult_norm(var) * doc->total;
+    for (n = 0; n < doc->nterms; n++)
+    {
+        // !!! we can speed this up by turning it into a dot product
+        // !!! profiler says this is where some time is spent
+        double temp = 0.0;
+        for (i = 0; i < k; i++)
+        {
+            double phi_ij = mget(var->phi, n, i);
+            double log_phi_ij = mget(var->log_phi, n, i);
+            if (phi_ij > 0)
+            {
+                vinc(var->topic_scores, i, phi_ij * (double) doc->count[n]);
+                lhood += ((double) doc->label * phi_ij * vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)
+                    + ((double) doc->count[n] * phi_ij * (vget(var->lambda, i) + mget(mod->log_omega, i, doc->word[n]) - log_phi_ij));
+                temp += phi_ij * exp(vget(mod->topic_beta, i) * (double)doc->count[n] / (double)doc->total);
+                cbhz_prod *= temp;
+            }
+            
+        }
+    }
+
+=======
 
     lhood -= expect_mult_norm(var) * doc->total;
     for (i = 0; i < doc->nterms; i++)
@@ -185,6 +214,7 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
             temp += mget(var->phi, n, i) * exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
         cbhz_prod *= temp;
     }
+>>>>>>> acd34b8... Add project files.
     if (doc->label>0 && doc->t_exit < mod->range_t - 1)
         lhood +=safe_log(vget(mod->basehazard, doc->t_exit));
     lhood -= cbhz_prod;

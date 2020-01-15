@@ -1,12 +1,20 @@
-em max iter 1000
-var max iter 500
-cg max iter 500
-surv max iter 50
+em max iter 100
+var max iter 1000
+cg max iter 1000
+surv max iter 100
+<<<<<<< HEAD
 em convergence 1e-4
 var convergence 1e-6
 cg convergence 1e-6
 surv convergence 1e-6
-surv penalty 1e-2
+surv penalty 1e-6
+=======
+em convergence 1e-6
+var convergence 1e-8
+cg convergence 1e-8
+surv convergence 1e-8
+surv penalty 1e-8
+>>>>>>> acd34b8... Add project files.
 lag 10
-run in 5
-covariance estimate mle
+run in 1
+covariance estimate shrinkage
