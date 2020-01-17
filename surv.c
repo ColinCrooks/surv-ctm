@@ -165,11 +165,8 @@ void cox_reg_distr_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulativ
 		if (label > 0)
 		{
 			gsl_vector_view personzbar = gsl_matrix_row(c->zbar, person);
-			//for (r = t_enter; r <= t_exit; r++)
-			//{
-				gsl_vector_view timeszbar = gsl_matrix_row(sum_zbar_events_cumulative, t_exit);
-				gsl_vector_add(&timeszbar.vector, &personzbar.vector);
-			//}
+			gsl_vector_view timeszbar = gsl_matrix_row(sum_zbar_events_cumulative, t_exit);
+			gsl_vector_add(&timeszbar.vector, &personzbar.vector);
 		}
 	}
 
@@ -189,7 +186,6 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 	gsl_vector_view zb = gsl_vector_subvector(c->zbeta, start, nrows);
 	gsl_blas_dgemv(CblasNoTrans, 1.0, &personrisk.matrix, beta, 0.0, &zb.vector);
 
-	//gsl_vector* z = gsl_vector_calloc(nvar);
 	for (int person = rank * c->ndocs / size; person < (rank + 1) * c->ndocs / size; person++)
 	{
 		int t_enter = c->docs[person].t_enter;
@@ -242,10 +238,10 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 		gsl_matrix_free(sum_zbar_private);
 	}
 	gsl_vector* beta = gsl_vector_calloc(nvar);
-	gsl_matrix* cumulrisk = gsl_vector_calloc(ntimes);
+	gsl_vector* cumulrisk = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulgdiag = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulhdiag = gsl_vector_calloc(ntimes);
-	gsl_matrix* cumul2risk = gsl_vector_calloc(ntimes);
+	gsl_vector* cumul2risk = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulg2diag = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulh2diag = gsl_vector_calloc(ntimes);
 	gsl_vector* step = gsl_vector_calloc(nvar);
@@ -388,7 +384,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 int cox_reg_dac(llna_model* model, corpus* c, double* f, int group, int base_index, gsl_vector* beta)
 {
 	//Mittal, S., Madigan, D., Burd, R. S., & Suchard, M. a. (2013). High-dimensional, massive sample-size Cox proportional hazards regression for survival analysis. Biostatistics (Oxford, England), 1–15. doi:10.1093/biostatistics/kxt043
-	int i,k, groupperson, person, iter, r, z;
+	int i,k, groupperson, person, iter, r;
 	int nvar = model->k;
 	int nused = (int) c->group->size1, lastvar = 0;
 	int ntimes = model->range_t;
@@ -425,7 +421,7 @@ int cox_reg_dac(llna_model* model, corpus* c, double* f, int group, int base_ind
 		int label = c->docs[person].label;
 		int mark = (int) mget(c->mark, person, group);
 
-		z = 0;
+		double z = 0;
 		for (i = 0; i < nvar; i++)
 		{
 			if (i == base_index) continue;

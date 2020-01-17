@@ -52,14 +52,11 @@
     <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-<<<<<<< HEAD
     <UseIntelIPP>Parallel_Dynamic</UseIntelIPP>
     <UseIntelTBB>true</UseIntelTBB>
     <UseIntelMKL>Parallel</UseIntelMKL>
     <UseILP64Interfaces>true</UseILP64Interfaces>
     <UseIntelDAAL>Parallel_Dynamic</UseIntelDAAL>
-=======
->>>>>>> acd34b8... Add project files.
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -182,11 +179,8 @@
       </IgnoreAllDefaultLibraries>
       <IgnoreSpecificDefaultLibraries>
       </IgnoreSpecificDefaultLibraries>
-<<<<<<< HEAD
+
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
-=======
-      <AdditionalDependencies>mkl_intel_ilp64.lib;mkl_intel_thread.lib;mkl_core.lib;%(AdditionalDependencies)</AdditionalDependencies>
->>>>>>> acd34b8... Add project files.
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalLibraryDirectories>C:\Program Files (x86)\IntelSWTools\compilers_and_libraries_2019.5.281\windows\mkl\bin\pkgconfig;C:\Program Files %28x86%29\IntelSWTools\compilers_and_libraries_2019.5.281\windows\mkl\lib\intel64_win;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>

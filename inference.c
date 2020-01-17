@@ -54,18 +54,21 @@ void fdf_nu(const gsl_vector * p, void * params, double * f, gsl_vector * df);
  *
  */
 
-gsl_vector ** temp;
+
 int ntemp = 4;
+gsl_vector** tempvector;
 
 void init_temp_vectors(int size)
 {
+
     int i;
-    temp = malloc(sizeof(gsl_vector *)*ntemp);
-    if (temp != NULL && ntemp > 0)
+    tempvector = malloc(sizeof(gsl_vector *) * ntemp);
+    if (tempvector != NULL && ntemp > 0)
     {
-        for (i = 0; i < 4; i++)
-            temp[i] = (int) gsl_vector_alloc(size);
+        for (i = 0; i < ntemp; i++)
+            tempvector[i] = gsl_vector_alloc(size);
     }
+    return;
 }
 
 
@@ -78,7 +81,7 @@ double expect_mult_norm(llna_var_param * var)
 {
     int i;
     double sum_exp = 0;
-    int niter = var->lambda->size;
+    int niter = (int) var->lambda->size;
 
     for (i = 0; i < niter; i++)
         sum_exp += exp(vget(var->lambda, i) + (0.5) * vget(var->nu,i));
@@ -146,11 +149,8 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     for (i = 0; i < k - 1; i++)
     {
         double v = -(0.5) * vget(var->nu, i) * mget(mod->inv_cov, i, i);
-<<<<<<< HEAD
+
         for (j = 0; j < k - 1; j++)
-=======
-        for (j = 0; j < mod->k - 1; j++)
->>>>>>> acd34b8... Add project files.
         {
             v -= (0.5) *
                 (vget(var->lambda, i) - vget(mod->mu, i)) *
@@ -162,7 +162,7 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     }
 
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
-<<<<<<< HEAD
+
     double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
     lhood -= expect_mult_norm(var) * doc->total;
     for (n = 0; n < doc->nterms; n++)
@@ -186,35 +186,7 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         }
     }
 
-=======
-
-    lhood -= expect_mult_norm(var) * doc->total;
-    for (i = 0; i < doc->nterms; i++)
-    {
-        // !!! we can speed this up by turning it into a dot product
-        // !!! profiler says this is where some time is spent
-        for (j = 0; j < mod->k; j++)
-        {
-            double phi_ij = mget(var->phi, i, j);
-            double log_phi_ij = mget(var->log_phi, i, j);
-            if (phi_ij > 0)
-            {
-                vinc(var->topic_scores, j, phi_ij * (double) doc->count[i]);
-                lhood += ((double) doc->label * phi_ij * vget(mod->topic_beta, j) * (double) doc->count[i] / (double) doc->total)
-                    + ((double) doc->count[i] * phi_ij * (vget(var->lambda, j) + mget(mod->log_omega, j, doc->word[i]) - log_phi_ij));
-            }
-        }
-    }
-
-    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
-    for (n = 0; n < doc->nterms; n++)
-    {
-        double temp = 0.0;
-        for (i = 0; i < k; i++)
-            temp += mget(var->phi, n, i) * exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
-        cbhz_prod *= temp;
-    }
->>>>>>> acd34b8... Add project files.
+ 
     if (doc->label>0 && doc->t_exit < mod->range_t - 1)
         lhood +=safe_log(vget(mod->basehazard, doc->t_exit));
     lhood -= cbhz_prod;
@@ -338,9 +310,58 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
 
 void fdf_lambda(const gsl_vector * p, void * params, double * f, gsl_vector * df)
 {
-    *f = f_lambda(p, params);
-    df_lambda(p, params, df);
+   // *f = f_lambda(p, params);
+   // df_lambda(p, params, df);
+
+    double term1, term2, term3;
+    int i;
+    llna_var_param* var = ((bundle*)params)->var;
+    doc* doc = ((bundle*)params)->doc;
+    llna_model* mod = ((bundle*)params)->mod;
+    gsl_vector* sum_phi = ((bundle*)params)->sum_phi;
+
+    gsl_vector_set_zero(tempvector[0]);
+
+    // compute lambda^T \sum phi = term 1
+    gsl_blas_ddot(p, ((bundle*)params)->sum_phi, &term1);
+    //  lambda (= temp1)
+    gsl_blas_dcopy(p, tempvector[1]);
+    // (\lambda -\mu) = temp1
+    gsl_blas_daxpy(-1.0, mod->mu, tempvector[1]);
+
+    // compute \Sigma^{-1} (\lambda - \mu) = temp0
+    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, tempvector[1], 0, tempvector[0]);
+    // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2) = temp3
+    // last term in f_lambda
+    term3 = 0;
+    double update = -((double)doc->total / var->zeta);
+  //  gsl_blas_daxpy(0.5, var->nu, p);
+  //  gsl_blas_daxpy(update, p, tempvector[3]);
+    for (i = 0; i < (mod->k) - 1; i++)
+    {
+        double update2= exp(vget(p, i) + (0.5) * vget(var->nu, i));
+        vset(tempvector[3], i, update * update2);
+        term3 += update2;
+    }
+    term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double) doc->total;
+
+    gsl_vector_set_all(df, 0.0);
+    gsl_vector_add(df, tempvector[0]);
+    gsl_vector_sub(df, sum_phi);
+    gsl_vector_sub(df, tempvector[3]);
+
+    // compute (lambda - mu)^T Sigma^-1 (lambda - mu) = term 2
+    gsl_blas_ddot(tempvector[1], tempvector[0], &term2);
+    term2 = -0.5 * term2;
+
+    *f = (-(term1 + term2 + term3));
+    // negate for minimization
+    return;
 }
+
+
+// set return value (note negating derivative of bound)
+
 
 
 double f_lambda(const gsl_vector * p, void * params)
@@ -354,12 +375,12 @@ double f_lambda(const gsl_vector * p, void * params)
     // compute lambda^T \sum phi
     gsl_blas_ddot(p,((bundle *) params)->sum_phi, &term1);
     // compute lambda - mu (= temp1)
-    gsl_blas_dcopy(p, temp[1]);
-    gsl_blas_daxpy (-1.0, mod->mu, temp[1]);
+    gsl_blas_dcopy(p, tempvector[1]);
+    gsl_blas_daxpy (-1.0, mod->mu, tempvector[1]);
     // compute (lambda - mu)^T Sigma^-1 (lambda - mu)
-    gsl_blas_dsymv(CblasUpper, 1, mod->inv_cov, temp[1], 0, temp[2]);
+    gsl_blas_dsymv(CblasUpper, 1, mod->inv_cov, tempvector[1], 0, tempvector[2]);
     // gsl_blas_dgemv(CblasNoTrans, 1, mod->inv_cov, temp[1], 0, temp[2]);
-    gsl_blas_ddot(temp[2], temp[1], &term2);
+    gsl_blas_ddot(tempvector[2], tempvector[1], &term2);
     term2 = - 0.5 * term2;
     // last term
     term3 = 0;
@@ -382,26 +403,26 @@ void df_lambda(const gsl_vector * p, void * params, gsl_vector * df)
 
     // compute \Sigma^{-1} (\mu - \lambda)
 
-    gsl_vector_set_zero(temp[0]);
-    gsl_blas_dcopy(mod->mu, temp[1]);
-    gsl_vector_sub(temp[1], p);
-    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, temp[1], 0, temp[0]);
+    gsl_vector_set_zero(tempvector[0]);
+    gsl_blas_dcopy(mod->mu, tempvector[1]);
+    gsl_vector_sub(tempvector[1], p);
+    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, tempvector[1], 0, tempvector[0]);
 
     // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2)
 
     int i;
-    for (i = 0; i < temp[3]->size; i++)
+    for (i = 0; i < tempvector[3]->size; i++)
     {
-        vset(temp[3], i, -(((double) doc->total) / var->zeta) *
+        vset(tempvector[3], i, -(((double) doc->total) / var->zeta) *
              exp(vget(p, i) + 0.5 * vget(var->nu, i)));
     }
 
     // set return value (note negating derivative of bound)
 
     gsl_vector_set_all(df, 0.0);
-    gsl_vector_sub(df, temp[0]);
+    gsl_vector_sub(df, tempvector[0]);
     gsl_vector_sub(df, sum_phi);
-    gsl_vector_sub(df, temp[3]);
+    gsl_vector_sub(df, tempvector[3]);
 }
 
 
@@ -421,11 +442,11 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     // precompute \sum_n \phi_n and put it in the bundle
 
-    b.sum_phi = gsl_vector_alloc(mod->k-1);
+    b.sum_phi = gsl_vector_alloc((mod->k)-1);
     gsl_vector_set_zero(b.sum_phi);
     for (i = 0; i < doc->nterms; i++)
     {
-        for (j = 0; j < mod->k-1; j++)
+        for (j = 0; j < (mod->k)-1; j++)
         {
             vinc(b.sum_phi, j,
                  ((double) doc->count[i]) * mget(var->phi, i, j));
@@ -435,18 +456,18 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     lambda_obj.f = &f_lambda;
     lambda_obj.df = &df_lambda;
     lambda_obj.fdf = &fdf_lambda;
-    lambda_obj.n = mod->k-1;
+    lambda_obj.n = (mod->k)-1;
     lambda_obj.params = (void *)&b;
 
     // starting value
-    // T = gsl_multimin_fdfminimizer_vector_bfgs;
-    T = gsl_multimin_fdfminimizer_conjugate_fr;
+     T = gsl_multimin_fdfminimizer_vector_bfgs;
+    //T = gsl_multimin_fdfminimizer_conjugate_fr;
     // T = gsl_multimin_fdfminimizer_steepest_descent;
-    s = gsl_multimin_fdfminimizer_alloc (T, mod->k-1);
+    s = gsl_multimin_fdfminimizer_alloc (T, (mod->k)-1);
 
-    gsl_vector* x = gsl_vector_calloc(mod->k-1);
+    gsl_vector* x = gsl_vector_calloc((mod->k)-1);
     for (i = 0; i < mod->k-1; i++) vset(x, i, vget(var->lambda, i));
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, PARAMS.cg_convergence, PARAMS.cg_convergence);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 0.01);
     do
     {
         iter++;

@@ -64,8 +64,7 @@ extern llna_params PARAMS;
 #endif
 
 #define HAVE_INLINE 1                   
-#define GSL_RANGE_CHECK 0
-#define GSL_RANGE_CHECK_OFF   1       // Turn off range checking for arrays
+#define GSL_RANGE_CHECK_OFF   1       // Turn off range checking for arrays for speed up (can be switched back on if need to re debug the code)
 
 
 /*
@@ -89,7 +88,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
     total = 0;
 #pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
-        int i, j, n;
+        int i, j;
         int size = omp_get_num_threads(); // get total number of processes
         int rank = omp_get_thread_num(); // get rank of current
         double  lhood;
@@ -124,10 +123,12 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             convergedpct += var->converged;
 
             // Allocated topics for survival supervision
-            for (n = 0; n < doc.nterms; n++)
+            for (int n = 0; n < doc.nterms; n++)
                 for (j = 0; j < model->k; j++)
-                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double)doc.count[n] / (double)doc.total);
-                    // minc(corpus->zbar, i, j, vget(var->lambda, j));
+                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double) doc.count[n] / (double) doc.total); 
+                //mset(corpus->zbar, i, j, vget(var->lambda, j));
+//            
+
                     //
             //printf("zbar\t");
             //gsl_vector_view zbar = gsl_matrix_row(corpus->zbar, i);
@@ -251,7 +252,7 @@ void maximization(llna_model* model, llna_ss* ss)
     }
     if (PARAMS.cov_estimate == SHRINK)
     {
-        cov_shrinkage(model->cov, ss->ndata, model->cov);
+        cov_shrinkage(model->cov, (int) ss->ndata, model->cov);
     }
     matrix_inverse(model->cov, model->inv_cov);
     model->log_det_inv_cov = log_det(model->inv_cov);
@@ -544,11 +545,12 @@ void em(char* dataset, int k, char* start, char* dir)
     corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
 	printf("gsl allocated\t");
     time(&t1);
-    init_temp_vectors(model->k-1); // !!! hacky
+    init_temp_vectors((model->k)-1); // !!! hacky
     model->iteration = 0;
     sprintf(string, "%s/%03d", dir, model->iteration);
     write_llna_model(model, string);
-
+    double C = 0.0;
+    double Change = 0.0;
     do
     {
         if (convergence <= model->em_convergence && model->iteration > 0)
@@ -571,11 +573,11 @@ void em(char* dataset, int k, char* start, char* dir)
         convergence = (lhood_old - lhood) / lhood_old;
 
 
-        time(&t1);
+        
 
         if (convergence < 0)
         {
-            reset_var = 1;
+            reset_var = 0;
             gsl_vector_set_zero(model->topic_beta);
             if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10;
             if (PARAMS.var_max_iter > 0)
@@ -588,11 +590,12 @@ void em(char* dataset, int k, char* start, char* dir)
         }
         maximization(model, ss);
 
+        time(&t1);
 
         //Survival supervision
         double max_ss = 0.0;
         int base_index = 0;
-        gsl_vector* zsum = gsl_vector_calloc(model->k);
+     /*   gsl_vector* zsum = gsl_vector_calloc(model->k);
         col_sum(corpus->zbar, zsum);
         for (int i = 0; i < model->k; i++)
         {
@@ -602,13 +605,9 @@ void em(char* dataset, int k, char* start, char* dir)
                 max_ss = vget(zsum, i);
             }
         }
+        */
         double f = 0.0;
-
         int cox_iter = 0;
-          //  if (iteration >= PARAMS.runin)
-         //   {
-               // base_index = k-1;
-
         cox_iter=cox_reg_dist(model, corpus, &f, base_index);
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);
@@ -637,9 +636,9 @@ void em(char* dataset, int k, char* start, char* dir)
 //            gsl_vector_free(beta);
 
          //   cox_iter = cox_reg(model, corpus, &f, base_index);
-
+        double newC = cstat(corpus, model);
         fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
-            model->iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, cstat(corpus, model));
+            model->iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, newC);
         lhood_old = lhood;
         /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
         {
@@ -652,13 +651,13 @@ void em(char* dataset, int k, char* start, char* dir)
         }*/
         model->iteration++;
 
-       
-
+        Change = newC - C;
+        C = newC;
         fflush(lhood_fptr);
         reset_llna_ss(ss);
         old_conv = convergence;
     }
-    while ((model->iteration <= PARAMS.runin + 1) || ((model->iteration < PARAMS.em_max_iter) &&
+    while ((model->iteration <= PARAMS.runin + 1) || (Change < 0 && (model->iteration < PARAMS.em_max_iter) &&
            (((fabs(convergence) > PARAMS.em_convergence) ))));
 
     printf("Converged: \n Final likelihood %5.5e \t final C statistic = %f\n", lhood, cstat(corpus, model));

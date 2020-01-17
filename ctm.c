@@ -78,8 +78,8 @@ llna_ss * new_llna_ss(llna_model* model)
     ss = malloc(sizeof(llna_ss));
     if (ss != NULL)
     {
-        ss->mu_ss = gsl_vector_calloc(model->k - 1);
-        ss->cov_ss = gsl_matrix_calloc(model->k - 1, model->k - 1);
+        ss->mu_ss = gsl_vector_calloc((model->k) - 1);
+        ss->cov_ss = gsl_matrix_calloc((model->k) - 1, (model->k) - 1);
         ss->omega_ss = gsl_matrix_calloc(model->k, model->log_omega->size2);
         ss->ndata = 0;
         reset_llna_ss(ss);
@@ -155,7 +155,7 @@ llna_model* corpus_init(int ntopics, corpus* corpus)
         for (i = 0; i < NUM_INIT; i++)
         {
             d = (int) floor(gsl_rng_uniform(r)*corpus->ndocs);
-            printf("initialized with document %d\n", d);
+           // printf("initialized with document %d\n", d);
             doc = &(corpus->docs[d]);
             for (n = 0; n < doc->nterms; n++)
             {

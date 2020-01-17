@@ -50,7 +50,7 @@ corpus* read_data(const char* data_filename)
     if (c->docs != NULL)
     {
         int pos = 0;
-        char* line[5000]; //fscanf(fileptr, "%d,%d,%d,%d", &label, &t_enter, &t_exit, &length) != EOF)
+        char line[5000]; //fscanf(fileptr, "%d,%d,%d,%d", &label, &t_enter, &t_exit, &length) != EOF)
         char* linefeed = line;
         while (fgets(linefeed, sizeof(char) * 10000, fileptr) != NULL)
         {

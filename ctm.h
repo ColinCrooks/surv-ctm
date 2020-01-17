@@ -26,7 +26,7 @@
 #include <time.h>
 #include "corpus.h"
 
-#define NUM_INIT 1
+#define NUM_INIT 100
 #define SEED_INIT_SMOOTH 1.0
 
 /*
