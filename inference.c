@@ -55,7 +55,7 @@ void fdf_nu(const gsl_vector * p, void * params, double * f, gsl_vector * df);
  */
 
 
-int ntemp = 4;
+int ntemp = (int) 4;
 gsl_vector** tempvector;
 
 void init_temp_vectors(int size)
@@ -65,8 +65,8 @@ void init_temp_vectors(int size)
     tempvector = malloc(sizeof(gsl_vector *) * ntemp);
     if (tempvector != NULL && ntemp > 0)
     {
-        for (i = 0; i < ntemp; i++)
-            tempvector[i] = gsl_vector_alloc(size);
+        for (i = 0; i < ntemp; i++) 
+            tempvector[i] = gsl_vector_calloc(size);
     }
     return;
 }
@@ -162,7 +162,7 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     }
 
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
-
+    gsl_vector* scaledbeta = gsl_vector_alloc(k);
     double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
     lhood -= expect_mult_norm(var) * doc->total;
     for (n = 0; n < doc->nterms; n++)
@@ -170,7 +170,24 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         // !!! we can speed this up by turning it into a dot product
         // !!! profiler says this is where some time is spent
         double temp = 0.0;
+        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
+        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
+        gsl_vector_view logomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
+        gsl_vector_memcpy(scaledbeta, mod->topic_beta);
+        gsl_vector_scale(scaledbeta, (double) doc->count[n] / (double) doc->total);
+
         for (i = 0; i < k; i++)
+            temp += vget(&nphi.vector, i) * exp(vget(scaledbeta,i));
+        cbhz_prod *= temp;
+        if (doc->label>0) gsl_blas_ddot(&nphi.vector, scaledbeta, &lhood);
+        
+        gsl_vector_memcpy(scaledbeta, &logomega.vector);
+        gsl_blas_daxpy(1.0, var->lambda, scaledbeta);
+        gsl_blas_daxpy(-1.0, &nlogphi.vector, scaledbeta);
+        gsl_blas_ddot(&nphi.vector, scaledbeta, &temp);
+        lhood += (double) doc->count[n] * temp;
+
+        /*for (i = 0; i < k; i++)
         {
             double phi_ij = mget(var->phi, n, i);
             double log_phi_ij = mget(var->log_phi, n, i);
@@ -179,11 +196,12 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
                 vinc(var->topic_scores, i, phi_ij * (double) doc->count[n]);
                 lhood += ((double) doc->label * phi_ij * vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)
                     + ((double) doc->count[n] * phi_ij * (vget(var->lambda, i) + mget(mod->log_omega, i, doc->word[n]) - log_phi_ij));
-                temp += phi_ij * exp(vget(mod->topic_beta, i) * (double)doc->count[n] / (double)doc->total);
+                for (i = 0; i < k; i++)
+                    temp += vget(&nphi.vector, i) * exp(vget(scaledbeta, i));
                 cbhz_prod *= temp;
             }
             
-        }
+        }*/
     }
 
  
@@ -227,22 +245,27 @@ void opt_phi(llna_var_param * var, doc * doc, llna_model * mod)
     // compute phi proportions in log space
 
     for (n = 0; n < doc->nterms; n++)
-    {
-        log_sum_n = 0;
-        for (i = 0; i < K; i++)
+    {  
+        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
+        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
+        gsl_vector_view nlogomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
+        gsl_vector_memcpy(&nlogphi.vector, &nlogomega.vector);
+        gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
+        log_sum_n = vget(&nlogphi.vector, 0);
+        for (i = 1; i < K; i++)
         {
-            mset(var->log_phi, n, i,
-                 vget(var->lambda, i) + mget(mod->log_omega, i, doc->word[n]));
-            if (i == 0)
-                log_sum_n = mget(var->log_phi, n, i);
-            else
-                log_sum_n =  log_sum(log_sum_n, mget(var->log_phi, n, i));
+            log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
+           // double expphi= exp(vget(&nlogphi.vector, i));
+           // log_sum_n += expphi;
         }
+        //gsl_vector_(&nphi.vector, 1.0 /log_sum_n);
+        //log_sum_n = safe_log(log_sum_n);
+        //        
+        gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
         for (i = 0; i < K; i++)
         {
-            mset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
-            mset(var->phi, n, i, exp(mget(var->log_phi, n, i)));
-            assert(!isnan(mget(var->phi,n,i)));
+            vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
+            assert(!isnan(vget(&nphi.vector,i)));
         }
     }
 }
@@ -251,55 +274,66 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
 {
     int i, n, K = mod->k;
     double log_sum_n = 0, temp = 0;
+    double label = (double) doc->label;
+    gsl_matrix* cbhz_params_matrix = gsl_matrix_alloc(doc->nterms, K); //for temporary working 
+    gsl_matrix* scaledbetamatrix = gsl_matrix_alloc(doc->nterms, K); //for temporary working 
 
-    gsl_vector* cbhz_params = gsl_vector_calloc(K);
-    gsl_vector_set_zero(cbhz_params);
-    double cbhz_prod = 1.0;
+    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
     for (n = 0; n < doc->nterms; n++)
     {
-        temp = 0.0;
+        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
+        gsl_vector_view scaledbeta = gsl_matrix_row(scaledbetamatrix, n);
+        gsl_vector_view cbhz_params = gsl_matrix_row(cbhz_params_matrix, n);
+        gsl_vector_memcpy(&scaledbeta.vector, mod->topic_beta);
+        gsl_vector_scale(&scaledbeta.vector, (double) doc->count[n] / (double) doc->total);
         for (i = 0; i < K; i++)
-            temp += mget(var->phi, n, i) * exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total);
-        assert(!isnan(temp));
+            vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+        assert(!isnan(temp) && !isinf(temp));
         cbhz_prod *= temp;
     }
 
 
     // compute phi proportions in log space
-
     for (n = 0; n < doc->nterms; n++)
     {
-        temp = 0.0;
-        for (i = 0; i < K; i++)
-        {
-            vset(cbhz_params, i, exp(vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)); // Only exponentiate once
-            temp += mget(var->phi, n, i) * vget(cbhz_params, i);
-        }
-        cbhz_prod /= temp; //remove the contribution of word n
+        gsl_vector_view cbhz_params = gsl_matrix_row(cbhz_params_matrix, n);
+        gsl_vector_view scaledbeta = gsl_matrix_row(scaledbetamatrix, n);
+        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
+        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
+        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector,&temp);
+        cbhz_prod /= exp(temp); //remove the contribution of word n
+        assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
 
-        log_sum_n = 0;
+        gsl_vector_view nlogomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
+        gsl_vector_memcpy(&nlogphi.vector, &nlogomega.vector);
+        gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
+        gsl_blas_daxpy(label, &scaledbeta.vector, &nlogphi.vector);
+        gsl_blas_daxpy(-cbhz_prod, &cbhz_params.vector, &nlogphi.vector);
+
+        log_sum_n = vget(&nlogphi.vector, 0);
+        for (i = 1; i < K; i++)
+        {
+            log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
+            assert(!isnan(log_sum_n) && !isinf(log_sum_n));
+        }
+        gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
+
         for (i = 0; i < K; i++)
         {
-            mset(var->log_phi, n, i,
-                vget(var->lambda, i) + mget(mod->log_omega, i, doc->word[n]) 
-                + ((double) doc->label * vget(mod->topic_beta, i) * (double) doc->count[n] / (double) doc->total)
-                - (vget(mod->cbasehazard, doc->t_exit) * cbhz_prod * vget(cbhz_params,i)));
-            if (i == 0)
-                log_sum_n = mget(var->log_phi, n, i);
-            else
-                log_sum_n = log_sum(log_sum_n, mget(var->log_phi, n, i));
+//            mset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
+            vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
+            assert(!isnan(vget(&nlogphi.vector, i)));
         }
-        for (i = 0; i < K; i++)
-        {
-            mset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
-            mset(var->phi, n, i, exp(mget(var->log_phi, n, i)));
-            assert(!isnan(mget(var->phi, n, i)));
-        }
-        temp = 0.0;
-        for (i = 0; i < K; i++)
-            temp += mget(var->phi, n, i) * vget(cbhz_params, i);
+        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+        assert(!isnan(temp) && !isinf(temp));
+
         cbhz_prod *= temp;
+        assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
+
     }
+    gsl_matrix_free(cbhz_params_matrix);
+    gsl_matrix_free(scaledbetamatrix);
 }
 
 
@@ -334,15 +368,15 @@ void fdf_lambda(const gsl_vector * p, void * params, double * f, gsl_vector * df
     // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2) = temp3
     // last term in f_lambda
     term3 = 0;
-    double update = -((double)doc->total / var->zeta);
-  //  gsl_blas_daxpy(0.5, var->nu, p);
-  //  gsl_blas_daxpy(update, p, tempvector[3]);
+    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
+    gsl_vector_memcpy(tempvector[2], p);
+    gsl_blas_daxpy(0.5, &nu.vector, tempvector[2]);
     for (i = 0; i < (mod->k) - 1; i++)
     {
-        double update2= exp(vget(p, i) + (0.5) * vget(var->nu, i));
-        vset(tempvector[3], i, update * update2);
-        term3 += update2;
+        vset(tempvector[2], i, exp(vget(tempvector[2], i)));
+        term3 += vget(tempvector[2],i);
     }
+    gsl_blas_daxpy(-((double)doc->total / var->zeta), tempvector[2], tempvector[3]);
     term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double) doc->total;
 
     gsl_vector_set_all(df, 0.0);
@@ -384,9 +418,14 @@ double f_lambda(const gsl_vector * p, void * params)
     term2 = - 0.5 * term2;
     // last term
     term3 = 0;
-    for (i = 0; i < mod->k-1; i++)
-        term3 += exp(vget(p, i) + (0.5) * vget(var->nu,i));
-    term3 = -((1.0/var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * doc->total;
+    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
+    gsl_vector_memcpy(tempvector[3], p);
+    gsl_blas_daxpy(0.5, &nu.vector, tempvector[3]);
+    for (i = 0; i < (mod->k) - 1; i++)
+         term3 += exp(vget(tempvector[3], i));
+ 
+    term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double)doc->total;
+ 
     // negate for minimization
     return(-(term1+term2+term3));
 }
@@ -409,13 +448,13 @@ void df_lambda(const gsl_vector * p, void * params, gsl_vector * df)
     gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, tempvector[1], 0, tempvector[0]);
 
     // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2)
+    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
+    gsl_vector_memcpy(tempvector[2], p);
+    gsl_blas_daxpy(0.5, &nu.vector, tempvector[2]);
+    for (int i = 0; i < (mod->k) - 1; i++)
+        vset(tempvector[2], i, exp(vget(tempvector[2], i)));
 
-    int i;
-    for (i = 0; i < tempvector[3]->size; i++)
-    {
-        vset(tempvector[3], i, -(((double) doc->total) / var->zeta) *
-             exp(vget(p, i) + 0.5 * vget(var->nu, i)));
-    }
+    gsl_blas_daxpy(-((double)doc->total / var->zeta), tempvector[2], tempvector[3]);
 
     // set return value (note negating derivative of bound)
 
@@ -432,7 +471,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     const gsl_multimin_fdfminimizer_type * T;
     gsl_multimin_fdfminimizer * s;
     bundle b;
-    int iter = 0, i, j;
+    int iter = 0, i;
     int status;
     double f_old, converged;
 
@@ -441,31 +480,29 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     b.mod = mod;
 
     // precompute \sum_n \phi_n and put it in the bundle
-
-    b.sum_phi = gsl_vector_alloc((mod->k)-1);
+    int k = mod->k;
+    b.sum_phi = gsl_vector_alloc(k - (int) 1);
     gsl_vector_set_zero(b.sum_phi);
+    gsl_vector_view iphi;
     for (i = 0; i < doc->nterms; i++)
     {
-        for (j = 0; j < (mod->k)-1; j++)
-        {
-            vinc(b.sum_phi, j,
-                 ((double) doc->count[i]) * mget(var->phi, i, j));
-        }
+        iphi = gsl_matrix_subrow(var->phi, i, 0 , k - (int) 1);
+        gsl_blas_daxpy((double)doc->count[i], &iphi.vector, b.sum_phi);
     }
 
     lambda_obj.f = &f_lambda;
     lambda_obj.df = &df_lambda;
     lambda_obj.fdf = &fdf_lambda;
-    lambda_obj.n = (mod->k)-1;
+    lambda_obj.n = (mod->k)-(int) 1;
     lambda_obj.params = (void *)&b;
 
     // starting value
      T = gsl_multimin_fdfminimizer_vector_bfgs;
     //T = gsl_multimin_fdfminimizer_conjugate_fr;
     // T = gsl_multimin_fdfminimizer_steepest_descent;
-    s = gsl_multimin_fdfminimizer_alloc (T, (mod->k)-1);
+    s = gsl_multimin_fdfminimizer_alloc (T, (mod->k) - (int) 1);
 
-    gsl_vector* x = gsl_vector_calloc((mod->k)-1);
+    gsl_vector* x = gsl_vector_calloc((mod->k) - (int) 1);
     for (i = 0; i < mod->k-1; i++) vset(x, i, vget(var->lambda, i));
     gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 0.01);
     do
@@ -495,7 +532,6 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     gsl_multimin_fdfminimizer_free(s);
     gsl_vector_free(b.sum_phi);
     gsl_vector_free(x);
-
     return(0);
 }
 
@@ -604,7 +640,7 @@ void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
     int i;
 
     gsl_matrix_set_all(var->phi, 1.0/mod->k);
-    gsl_matrix_set_all(var->log_phi, safe_log((double) mod->k));
+    gsl_matrix_set_all(var->log_phi, log(1.0 / (double) mod->k));
     var->zeta = 10;
     for (i = 0; i < mod->k-1; i++)
     {

@@ -50,7 +50,7 @@ corpus* read_data(const char* data_filename)
     if (c->docs != NULL)
     {
         int pos = 0;
-        char line[5000]; //fscanf(fileptr, "%d,%d,%d,%d", &label, &t_enter, &t_exit, &length) != EOF)
+        char line[10000]; //fscanf(fileptr, "%d,%d,%d,%d", &label, &t_enter, &t_exit, &length) != EOF)
         char* linefeed = line;
         while (fgets(linefeed, sizeof(char) * 10000, fileptr) != NULL)
         {
@@ -273,8 +273,8 @@ void init_doc(doc* d, int max_nterms)
     {
         for (i = 0; i < max_nterms; i++)
         {
-            d->word[i] = 0;
-            d->count[i] = 0;
+            d->word[i] = (int) 0;
+            d->count[i] = (int) 0;
         }
     }
 }

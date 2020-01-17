@@ -550,6 +550,7 @@ void em(char* dataset, int k, char* start, char* dir)
     sprintf(string, "%s/%03d", dir, model->iteration);
     write_llna_model(model, string);
     double C = 0.0;
+    double newC = 0.0;
     double Change = 0.0;
     do
     {
@@ -564,37 +565,45 @@ void em(char* dataset, int k, char* start, char* dir)
 
         printf("***** EM ITERATION %d *****\n", model->iteration);
         printf("***** Target convergence = %f\n", model->em_convergence);
+        time(&t2);
         expectation(corpus, model, ss, &avg_niter, &lhood,
                     corpus_lambda, corpus_nu, corpus_phi_sum,
                     reset_var, &converged_pct);
-        time(&t2);
         printf("Expectation likelihood %5.5e \t ", lhood);
         printf("%5.0f percent documents converged\n", converged_pct*100);
         convergence = (lhood_old - lhood) / lhood_old;
-
-
-        
+        int base_index = 0;
+        double f = 0.0;
+        int cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+        cumulative_basehazard(corpus, model);
+        vprint(model->topic_beta);
+        newC = cstat(corpus, model);
 
         if (convergence < 0)
         {
             reset_var = 0;
             gsl_vector_set_zero(model->topic_beta);
             if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10;
-            if (PARAMS.var_max_iter > 0)
-                PARAMS.var_max_iter += 10;
-            else model->var_convergence /= 10;
+            if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10;
+            else model->var_convergence /= 10;  
         }
         else
         {
             reset_var = 1;
         }
         maximization(model, ss);
+        lhood_old = lhood;
+        model->iteration++;
 
         time(&t1);
+        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+        fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
+            model->iteration, lhood, convergence, (int)t2 - t1, avg_niter, converged_pct, newC);
+        Change = newC - C;
+        C = newC;
 
         //Survival supervision
-        double max_ss = 0.0;
-        int base_index = 0;
+//        double max_ss = 0.0;
      /*   gsl_vector* zsum = gsl_vector_calloc(model->k);
         col_sum(corpus->zbar, zsum);
         for (int i = 0; i < model->k; i++)
@@ -606,12 +615,6 @@ void em(char* dataset, int k, char* start, char* dir)
             }
         }
         */
-        double f = 0.0;
-        int cox_iter = 0;
-        cox_iter=cox_reg_dist(model, corpus, &f, base_index);
-        cumulative_basehazard(corpus, model);
-        vprint(model->topic_beta);
-        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
          //   }
 
             //permute_groups(corpus);
@@ -636,10 +639,6 @@ void em(char* dataset, int k, char* start, char* dir)
 //            gsl_vector_free(beta);
 
          //   cox_iter = cox_reg(model, corpus, &f, base_index);
-        double newC = cstat(corpus, model);
-        fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
-            model->iteration, lhood, convergence, (int) t2 - t1, avg_niter, converged_pct, newC);
-        lhood_old = lhood;
         /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
         {
             sprintf(string, "%s/%03d", dir, iteration);
@@ -649,16 +648,20 @@ void em(char* dataset, int k, char* start, char* dir)
             sprintf(string, "%s/%03d-nu.dat", dir, iteration);
             printf_matrix(string, corpus_nu);
         }*/
-        model->iteration++;
 
-        Change = newC - C;
-        C = newC;
         fflush(lhood_fptr);
         reset_llna_ss(ss);
         old_conv = convergence;
     }
-    while ((model->iteration <= PARAMS.runin + 1) || (Change < 0 && (model->iteration < PARAMS.em_max_iter) &&
+    while ((model->iteration <= PARAMS.runin + 1) || (/*Change < 0 &&*/ (model->iteration < PARAMS.em_max_iter) &&
            (((fabs(convergence) > PARAMS.em_convergence) ))));
+
+    maximization(model, ss);
+    int base_index = 0;
+    double f = 0.0;
+    int cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+    cumulative_basehazard(corpus, model);
+    vprint(model->topic_beta);
 
     printf("Converged: \n Final likelihood %5.5e \t final C statistic = %f\n", lhood, cstat(corpus, model));
 
@@ -795,7 +798,7 @@ int pod_experiment(char* observed_data, char* heldout_data,
 
     // run experiment
     init_temp_vectors(model->k-1); // !!! hacky
-    log_lhood = gsl_vector_alloc(obs->ndocs + 1);
+    log_lhood = gsl_vector_alloc(obs->ndocs + (int) 1);
     e_theta = gsl_vector_alloc(model->k);
     for (i = 0; i < obs->ndocs; i++)
     {

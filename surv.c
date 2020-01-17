@@ -188,8 +188,8 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 
 	for (int person = rank * c->ndocs / size; person < (rank + 1) * c->ndocs / size; person++)
 	{
-		int t_enter = c->docs[person].t_enter;
-		int t_exit = c->docs[person].t_exit;
+		int t_enter = (int) c->docs[person].t_enter;
+		int t_exit = (int) c->docs[person].t_exit;
 
 		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
 		double expxb = exp(vget(c->zbeta, person));
@@ -199,9 +199,9 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 		//vprint(beta);
 		//printf("\n");
 		//assert(!isnan(xb));
-		gsl_vector_view timeupdate = gsl_vector_subvector(cumulrisk, t_enter, t_exit - t_enter + 1);
-		gsl_vector_view timeupdate2 = gsl_vector_subvector(cumulgdiag, t_enter, t_exit - t_enter + 1);
-		gsl_vector_view timeupdate3 = gsl_vector_subvector(cumulhdiag, t_enter, t_exit - t_enter + 1);
+		gsl_vector_view timeupdate = gsl_vector_subvector(cumulrisk, t_enter, t_exit - t_enter + (int) 1);
+		gsl_vector_view timeupdate2 = gsl_vector_subvector(cumulgdiag, t_enter, t_exit - t_enter + (int) 1);
+		gsl_vector_view timeupdate3 = gsl_vector_subvector(cumulhdiag, t_enter, t_exit - t_enter + (int) 1);
 		gsl_vector_add_constant(&timeupdate.vector, expxb);
 		gsl_vector_add_constant(&timeupdate2.vector, z);
 		gsl_vector_add_constant(&timeupdate3.vector, zz);

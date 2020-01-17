@@ -43,6 +43,7 @@ void read_params(char* filename)
     chk+=fscanf(fileptr, "lag %d\n", &(PARAMS.lag));
     chk+=fscanf(fileptr, "run in %d\n", &(PARAMS.runin));
     chk+=fscanf(fileptr, "covariance estimate %s\n", string);
+    sprintf(string, "%s\0", string);
     if (strcmp(string, "shrinkage") == 0)
         PARAMS.cov_estimate = SHRINK;
     if (strcmp(string, "mle")==0)
