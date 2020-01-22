@@ -45,33 +45,6 @@ double f_lambda(const gsl_vector * p, void * params);
 void df_lambda(const gsl_vector * p, void * params, gsl_vector * df);
 void fdf_lambda(const gsl_vector * p, void * params, double * f, gsl_vector * df);
 
-double f_nu(const gsl_vector * p, void * params);
-void df_nu(const gsl_vector * p, void * params, gsl_vector * df);
-void fdf_nu(const gsl_vector * p, void * params, double * f, gsl_vector * df);
-
-/*
- * temporary k-1 vectors so we don't have to allocate, deallocate
- *
- */
-
-
-int ntemp = (int) 4;
-gsl_vector** tempvector;
-
-void init_temp_vectors(int size)
-{
-
-    int i;
-    tempvector = malloc(sizeof(gsl_vector *) * ntemp);
-    if (tempvector != NULL && ntemp > 0)
-    {
-        for (i = 0; i < ntemp; i++) 
-            tempvector[i] = gsl_vector_calloc(size);
-    }
-    return;
-}
-
-
 /*
  * likelihood bound
  *
@@ -88,27 +61,26 @@ double expect_mult_norm(llna_var_param * var)
 
     return((1.0/var->zeta) * sum_exp - 1.0 + safe_log(var->zeta));
 }
-
-
-void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
+/*
+void lhood_bnd_old(llna_var_param* var, doc* doc, llna_model* mod)
 {
     int i = 0, j = 0, k = mod->k;
     gsl_vector_set_zero(var->topic_scores);
 
     // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu)
 
-    double lhood  = (0.5) * mod->log_det_inv_cov + (0.5) * ((double) mod->k-1);
-    for (i = 0; i < k-1; i++)
+    double lhood = (0.5) * mod->log_det_inv_cov + (0.5) * (mod->k - 1);
+    for (i = 0; i < k - 1; i++)
     {
-        double v = - (0.5) * vget(var->nu, i) * mget(mod->inv_cov,i, i);
-        for (j = 0; j < mod->k-1; j++)
+        double v = -(0.5) * vget(var->nu, i) * mget(mod->inv_cov, i, i);
+        for (j = 0; j < mod->k - 1; j++)
         {
             v -= (0.5) *
                 (vget(var->lambda, i) - vget(mod->mu, i)) *
                 mget(mod->inv_cov, i, j) *
                 (vget(var->lambda, j) - vget(mod->mu, j));
         }
-        v += (0.5) * safe_log(vget(var->nu, i));
+        v += (0.5) * log(vget(var->nu, i));
         lhood += v;
     }
 
@@ -125,14 +97,65 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
             double log_phi_ij = mget(var->log_phi, i, j);
             if (phi_ij > 0)
             {
-                vinc(var->topic_scores, j, phi_ij * (double) doc->count[i]);
+                vinc(var->topic_scores, j, phi_ij * doc->count[i]);
                 lhood +=
                     doc->count[i] * phi_ij *
                     (vget(var->lambda, j) +
-                     mget(mod->log_omega, j, doc->word[i]) -
-                     log_phi_ij);
+                        mget(mod->log_omega, j, doc->word[i]) -
+                        log_phi_ij);
             }
         }
+    }
+    var->lhood = lhood;
+    assert(!isnan(var->lhood));
+}
+*/
+
+void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
+{
+    int n = 0, i = 0, k = mod->k;
+    gsl_vector_set_zero(var->topic_scores);
+    // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu) NB log 2pi cancels out in likelihood
+    double lhood = (0.5) * mod->log_det_inv_cov + (0.5)  * ((double) k - 1.0);
+    double v = 0.0;
+    gsl_vector_const_view inv_cov_diag = gsl_matrix_const_diagonal(mod->inv_cov);
+    gsl_vector_const_view nu = gsl_vector_const_subvector(var->nu, 0, (size_t)k - 1);
+    gsl_blas_ddot(&nu.vector, &inv_cov_diag.vector, &v);
+    lhood -= 0.5 * v;
+
+    // compute lambda - mu (= temp1)
+    gsl_vector_const_view lambda = gsl_vector_const_subvector(var->lambda, 0, (size_t)k - 1);
+    gsl_vector_const_view mu = gsl_vector_const_subvector(mod->mu, 0, (size_t)k - 1);
+    gsl_blas_dcopy(&lambda.vector, var->tempvector[1]);
+    gsl_blas_daxpy(-1.0, &mu.vector, var->tempvector[1]);
+    // compute (lambda - mu)^T Sigma^-1 (lambda - mu)
+    gsl_blas_dsymv(CblasUpper, 1, mod->inv_cov, var->tempvector[1], 0, var->tempvector[2]);
+    // gsl_blas_dgemv(CblasNoTrans, 1, mod->inv_cov, temp[1], 0, temp[2]);
+    gsl_blas_ddot(var->tempvector[1], var->tempvector[2], &v);
+    lhood -= 0.5 * v;
+
+    for (i = 0; i < k - 1; i++)
+        lhood += (0.5) * safe_log(vget(var->nu, i));
+
+    // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu)
+
+    // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
+    
+    //Loop is needed because phi is a representation of a sparse matrix for only the observed words
+    for (n = 0; n < doc->nterms; n++)
+    {
+        gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
+        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
+        gsl_vector_const_view logomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
+        v = 0.0;
+        gsl_blas_daxpy(doc->count[n], &nphi.vector, var->topic_scores);
+        gsl_blas_daxpy(-1.0, var->lambda, &nlogphi.vector);
+        gsl_blas_daxpy(-1.0, &logomega.vector, &nlogphi.vector);
+        gsl_vector_scale(&nlogphi.vector, -1.0);
+        v = 0.0;
+        gsl_blas_ddot(&nphi.vector, &nlogphi.vector, &v);
+        lhood += (double)doc->count[n] * v;
+
     }
     var->lhood = lhood;
     assert(!isnan(var->lhood));
@@ -143,49 +166,21 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
     int i = 0, j = 0, n = 0, k = mod->k;
     gsl_vector_set_zero(var->topic_scores);
 
-    // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu)
-
-    double lhood = (0.5) * mod->log_det_inv_cov + (0.5) * ((double) mod->k - 1);
-    for (i = 0; i < k - 1; i++)
-    {
-        double v = -(0.5) * vget(var->nu, i) * mget(mod->inv_cov, i, i);
-
-        for (j = 0; j < k - 1; j++)
-        {
-            v -= (0.5) *
-                (vget(var->lambda, i) - vget(mod->mu, i)) *
-                mget(mod->inv_cov, i, j) *
-                (vget(var->lambda, j) - vget(mod->mu, j));
-        }
-        v += (0.5) * safe_log(vget(var->nu, i));
-        lhood += v;
-    }
-
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
-    gsl_vector* scaledbeta = gsl_vector_alloc(k);
-    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
-    lhood -= expect_mult_norm(var) * doc->total;
+    double cbhz_prod = 1.0;
+    double lhood = 0.0;
+
     for (n = 0; n < doc->nterms; n++)
     {
-        // !!! we can speed this up by turning it into a dot product
-        // !!! profiler says this is where some time is spent
+        gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
+        gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
+        gsl_vector_const_view scaledbeta = gsl_matrix_const_row(var->scaledbetamatrix, n);
         double temp = 0.0;
-        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
-        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
-        gsl_vector_view logomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
-        gsl_vector_memcpy(scaledbeta, mod->topic_beta);
-        gsl_vector_scale(scaledbeta, (double) doc->count[n] / (double) doc->total);
-
-        for (i = 0; i < k; i++)
-            temp += vget(&nphi.vector, i) * exp(vget(scaledbeta,i));
+        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+        //for (i = 0; i < k; i++)
+         //   temp += vget(&nphi.vector, i) * exp(vget(scaledbeta,i));
         cbhz_prod *= temp;
-        if (doc->label>0) gsl_blas_ddot(&nphi.vector, scaledbeta, &lhood);
-        
-        gsl_vector_memcpy(scaledbeta, &logomega.vector);
-        gsl_blas_daxpy(1.0, var->lambda, scaledbeta);
-        gsl_blas_daxpy(-1.0, &nlogphi.vector, scaledbeta);
-        gsl_blas_ddot(&nphi.vector, scaledbeta, &temp);
-        lhood += (double) doc->count[n] * temp;
+        if (doc->label>0) gsl_blas_ddot(&nphi.vector, &scaledbeta.vector, &lhood);
 
         /*for (i = 0; i < k; i++)
         {
@@ -204,11 +199,12 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         }*/
     }
 
- 
+    lhood -= cbhz_prod * vget(mod->cbasehazard, doc->t_exit);
     if (doc->label>0 && doc->t_exit < mod->range_t - 1)
         lhood +=safe_log(vget(mod->basehazard, doc->t_exit));
-    lhood -= cbhz_prod;
-    var->lhood = lhood;
+
+    lhood_bnd(var, doc, mod);
+    var->lhood += lhood;
     assert(!isnan(var->lhood));
 }
 
@@ -243,13 +239,14 @@ void opt_phi(llna_var_param * var, doc * doc, llna_model * mod)
     double log_sum_n = 0;
 
     // compute phi proportions in log space
+ 
 
     for (n = 0; n < doc->nterms; n++)
     {  
         gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
         gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
-        gsl_vector_view nlogomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
-        gsl_vector_memcpy(&nlogphi.vector, &nlogomega.vector);
+        gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
+        gsl_blas_dcopy(&nlogomega.vector , &nlogphi.vector); //use log phi for temporary vector as and phi for phi calculatations
         gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
         log_sum_n = vget(&nlogphi.vector, 0);
         for (i = 1; i < K; i++)
@@ -275,19 +272,11 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
     int i, n, K = mod->k;
     double log_sum_n = 0, temp = 0;
     double label = (double) doc->label;
-    gsl_matrix* cbhz_params_matrix = gsl_matrix_alloc(doc->nterms, K); //for temporary working 
-    gsl_matrix* scaledbetamatrix = gsl_matrix_alloc(doc->nterms, K); //for temporary working 
-
-    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit);
+    double cbhz_prod = 1.0; //vget(mod->cbasehazard, doc->t_exit);
     for (n = 0; n < doc->nterms; n++)
     {
-        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
-        gsl_vector_view scaledbeta = gsl_matrix_row(scaledbetamatrix, n);
-        gsl_vector_view cbhz_params = gsl_matrix_row(cbhz_params_matrix, n);
-        gsl_vector_memcpy(&scaledbeta.vector, mod->topic_beta);
-        gsl_vector_scale(&scaledbeta.vector, (double) doc->count[n] / (double) doc->total);
-        for (i = 0; i < K; i++)
-            vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+        gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
+        gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
         assert(!isnan(temp) && !isinf(temp));
         cbhz_prod *= temp;
@@ -297,43 +286,38 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
     // compute phi proportions in log space
     for (n = 0; n < doc->nterms; n++)
     {
-        gsl_vector_view cbhz_params = gsl_matrix_row(cbhz_params_matrix, n);
-        gsl_vector_view scaledbeta = gsl_matrix_row(scaledbetamatrix, n);
+        gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
+        gsl_vector_const_view scaledbeta = gsl_matrix_const_row(var->scaledbetamatrix, n);
         gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
         gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector,&temp);
         cbhz_prod /= exp(temp); //remove the contribution of word n
         assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
 
-        gsl_vector_view nlogomega = gsl_matrix_column(mod->log_omega, doc->word[n]);
-        gsl_vector_memcpy(&nlogphi.vector, &nlogomega.vector);
+        gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
+        gsl_blas_dcopy(&nlogomega.vector, &nlogphi.vector);
         gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
         gsl_blas_daxpy(label, &scaledbeta.vector, &nlogphi.vector);
         gsl_blas_daxpy(-cbhz_prod, &cbhz_params.vector, &nlogphi.vector);
 
-        log_sum_n = vget(&nlogphi.vector, 0);
+        log_sum_n =  vget(&nlogphi.vector, 0);
         for (i = 1; i < K; i++)
         {
             log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
             assert(!isnan(log_sum_n) && !isinf(log_sum_n));
         }
         gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
-
         for (i = 0; i < K; i++)
         {
-//            mset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
+            //vset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
             vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
             assert(!isnan(vget(&nlogphi.vector, i)));
         }
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
         assert(!isnan(temp) && !isinf(temp));
-
         cbhz_prod *= temp;
         assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
-
     }
-    gsl_matrix_free(cbhz_params_matrix);
-    gsl_matrix_free(scaledbetamatrix);
 }
 
 
@@ -354,38 +338,38 @@ void fdf_lambda(const gsl_vector * p, void * params, double * f, gsl_vector * df
     llna_model* mod = ((bundle*)params)->mod;
     gsl_vector* sum_phi = ((bundle*)params)->sum_phi;
 
-    gsl_vector_set_zero(tempvector[0]);
+    gsl_vector_set_zero(var->tempvector[0]);
 
     // compute lambda^T \sum phi = term 1
     gsl_blas_ddot(p, ((bundle*)params)->sum_phi, &term1);
     //  lambda (= temp1)
-    gsl_blas_dcopy(p, tempvector[1]);
+    gsl_blas_dcopy(p, var->tempvector[1]);
     // (\lambda -\mu) = temp1
-    gsl_blas_daxpy(-1.0, mod->mu, tempvector[1]);
+    gsl_blas_daxpy(-1.0, mod->mu, var->tempvector[1]);
 
     // compute \Sigma^{-1} (\lambda - \mu) = temp0
-    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, tempvector[1], 0, tempvector[0]);
+    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, var->tempvector[1], 0, var->tempvector[0]);
     // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2) = temp3
     // last term in f_lambda
     term3 = 0;
-    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
-    gsl_vector_memcpy(tempvector[2], p);
-    gsl_blas_daxpy(0.5, &nu.vector, tempvector[2]);
+    gsl_vector_const_view nu = gsl_vector_const_subvector(var->nu, 0, (size_t)(mod->k) - 1);
+    gsl_blas_dcopy(p, var->tempvector[2]);
+    gsl_blas_daxpy(0.5, &nu.vector, var->tempvector[2]);
     for (i = 0; i < (mod->k) - 1; i++)
     {
-        vset(tempvector[2], i, exp(vget(tempvector[2], i)));
-        term3 += vget(tempvector[2],i);
+        vset(var->tempvector[2], i, exp(vget(var->tempvector[2], i)));
+        term3 += vget(var->tempvector[2],i);
     }
-    gsl_blas_daxpy(-((double)doc->total / var->zeta), tempvector[2], tempvector[3]);
+    gsl_blas_daxpy(-((double)doc->total / var->zeta), var->tempvector[2], var->tempvector[3]);
     term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double) doc->total;
 
     gsl_vector_set_all(df, 0.0);
-    gsl_vector_add(df, tempvector[0]);
+    gsl_vector_add(df, var->tempvector[0]);
     gsl_vector_sub(df, sum_phi);
-    gsl_vector_sub(df, tempvector[3]);
+    gsl_vector_sub(df, var->tempvector[3]);
 
     // compute (lambda - mu)^T Sigma^-1 (lambda - mu) = term 2
-    gsl_blas_ddot(tempvector[1], tempvector[0], &term2);
+    gsl_blas_ddot(var->tempvector[1], var->tempvector[0], &term2);
     term2 = -0.5 * term2;
 
     *f = (-(term1 + term2 + term3));
@@ -408,24 +392,27 @@ double f_lambda(const gsl_vector * p, void * params)
 
     // compute lambda^T \sum phi
     gsl_blas_ddot(p,((bundle *) params)->sum_phi, &term1);
+    assert(!isnan(term1));
+
     // compute lambda - mu (= temp1)
-    gsl_blas_dcopy(p, tempvector[1]);
-    gsl_blas_daxpy (-1.0, mod->mu, tempvector[1]);
+    gsl_blas_dcopy(p, var->tempvector[1]);
+    gsl_blas_daxpy (-1.0, mod->mu, var->tempvector[1]);
     // compute (lambda - mu)^T Sigma^-1 (lambda - mu)
-    gsl_blas_dsymv(CblasUpper, 1, mod->inv_cov, tempvector[1], 0, tempvector[2]);
+    gsl_blas_dsymv(CblasUpper, 1, mod->inv_cov, var->tempvector[1], 0, var->tempvector[2]);
     // gsl_blas_dgemv(CblasNoTrans, 1, mod->inv_cov, temp[1], 0, temp[2]);
-    gsl_blas_ddot(tempvector[2], tempvector[1], &term2);
+    gsl_blas_ddot(var->tempvector[2], var->tempvector[1], &term2);
     term2 = - 0.5 * term2;
+    assert(!isnan(term2));
     // last term
     term3 = 0;
-    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
-    gsl_vector_memcpy(tempvector[3], p);
-    gsl_blas_daxpy(0.5, &nu.vector, tempvector[3]);
+    gsl_vector_const_view nu = gsl_vector_const_subvector(var->nu, 0, (size_t)(mod->k) - 1);
+    gsl_blas_dcopy(p, var->tempvector[3]);
+    gsl_blas_daxpy(0.5, &nu.vector, var->tempvector[3]);
     for (i = 0; i < (mod->k) - 1; i++)
-         term3 += exp(vget(tempvector[3], i));
- 
+         term3 += exp(vget(var->tempvector[3], i));
+    assert(!isnan(term3));
     term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double)doc->total;
- 
+    assert(!isnan(term3));
     // negate for minimization
     return(-(term1+term2+term3));
 }
@@ -442,26 +429,26 @@ void df_lambda(const gsl_vector * p, void * params, gsl_vector * df)
 
     // compute \Sigma^{-1} (\mu - \lambda)
 
-    gsl_vector_set_zero(tempvector[0]);
-    gsl_blas_dcopy(mod->mu, tempvector[1]);
-    gsl_vector_sub(tempvector[1], p);
-    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, tempvector[1], 0, tempvector[0]);
+    gsl_vector_set_zero(var->tempvector[0]);
+    gsl_blas_dcopy(mod->mu, var->tempvector[1]);
+    gsl_vector_sub(var->tempvector[1], p);
+    gsl_blas_dsymv(CblasLower, 1, mod->inv_cov, var->tempvector[1], 0, var->tempvector[0]);
 
     // compute - (N / \zeta) * exp(\lambda + \nu^2 / 2)
-    gsl_vector_view nu = gsl_vector_subvector(var->nu, 0, (mod->k) - (int) 1);
-    gsl_vector_memcpy(tempvector[2], p);
-    gsl_blas_daxpy(0.5, &nu.vector, tempvector[2]);
+    gsl_vector_const_view nu = gsl_vector_const_subvector(var->nu, 0, (size_t)(mod->k) - 1);
+    gsl_vector_memcpy(var->tempvector[2], p);
+    gsl_blas_daxpy(0.5, &nu.vector, var->tempvector[2]);
     for (int i = 0; i < (mod->k) - 1; i++)
-        vset(tempvector[2], i, exp(vget(tempvector[2], i)));
+        vset(var->tempvector[2], i, exp(vget(var->tempvector[2], i)));
 
-    gsl_blas_daxpy(-((double)doc->total / var->zeta), tempvector[2], tempvector[3]);
+    gsl_blas_daxpy(-((double)doc->total / var->zeta), var->tempvector[2], var->tempvector[3]);
 
     // set return value (note negating derivative of bound)
 
     gsl_vector_set_all(df, 0.0);
-    gsl_vector_sub(df, tempvector[0]);
+    gsl_vector_sub(df, var->tempvector[0]);
     gsl_vector_sub(df, sum_phi);
-    gsl_vector_sub(df, tempvector[3]);
+    gsl_vector_sub(df, var->tempvector[3]);
 }
 
 
@@ -481,30 +468,28 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     // precompute \sum_n \phi_n and put it in the bundle
     int k = mod->k;
-    b.sum_phi = gsl_vector_alloc(k - (int) 1);
-    gsl_vector_set_zero(b.sum_phi);
-    gsl_vector_view iphi;
+    b.sum_phi = gsl_vector_calloc((size_t)k - 1);
     for (i = 0; i < doc->nterms; i++)
     {
-        iphi = gsl_matrix_subrow(var->phi, i, 0 , k - (int) 1);
+        gsl_vector_const_view iphi = gsl_matrix_const_subrow(var->phi, i, 0 , (size_t)k - 1);
         gsl_blas_daxpy((double)doc->count[i], &iphi.vector, b.sum_phi);
     }
 
     lambda_obj.f = &f_lambda;
     lambda_obj.df = &df_lambda;
     lambda_obj.fdf = &fdf_lambda;
-    lambda_obj.n = (mod->k)-(int) 1;
+    lambda_obj.n = (size_t)(mod->k)- 1;
     lambda_obj.params = (void *)&b;
 
     // starting value
      T = gsl_multimin_fdfminimizer_vector_bfgs;
     //T = gsl_multimin_fdfminimizer_conjugate_fr;
     // T = gsl_multimin_fdfminimizer_steepest_descent;
-    s = gsl_multimin_fdfminimizer_alloc (T, (mod->k) - (int) 1);
+    s = gsl_multimin_fdfminimizer_alloc (T, (size_t)(mod->k) - 1);
 
-    gsl_vector* x = gsl_vector_calloc((mod->k) - (int) 1);
+    gsl_vector* x = gsl_vector_calloc((size_t)(mod->k) - 1);
     for (i = 0; i < mod->k-1; i++) vset(x, i, vget(var->lambda, i));
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 0.01);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, x, 0.01, 0.001);
     do
     {
         iter++;
@@ -519,8 +504,8 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
            ((PARAMS.cg_max_iter < 0) || (iter < PARAMS.cg_max_iter)));
     // while ((converged > PARAMS.cg_convergence) &&
     // ((PARAMS.cg_max_iter < 0) || (iter < PARAMS.cg_max_iter)));
-    if (iter == PARAMS.cg_max_iter)
-        printf("warning: cg didn't converge (lambda)\n");
+  //  if (iter == PARAMS.cg_max_iter)
+   //     printf("warning: cg didn't converge (lambda)\n");
 
     for (i = 0; i < mod->k - 1; i++)
     {
@@ -651,6 +636,17 @@ void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
     vset(var->lambda, i, 0);
     var->niter = 0;
     var->lhood = 0;
+    for (i = 0; i< 4; i++)
+        gsl_vector_set_zero(var->tempvector[i]);
+    for (int n = 0; n < doc->nterms; n++)
+    {
+        gsl_vector_view scaledbeta = gsl_matrix_row(var->scaledbetamatrix, n);
+        gsl_vector_view cbhz_params = gsl_matrix_row(var->cbhz_params_matrix, n);
+        gsl_blas_dcopy(mod->topic_beta, &scaledbeta.vector);
+        gsl_vector_scale(&scaledbeta.vector, (double)doc->count[n] / (double)doc->total);
+        for (int i = 0; i < mod->k; i++)
+            vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+    }
 }
 
 
@@ -661,6 +657,15 @@ void init_var(llna_var_param * var, doc * doc, llna_model * mod, gsl_vector *lam
     opt_zeta(var, doc, mod);
     opt_phi(var, doc, mod);
     var->niter = 0;
+    for (int n = 0; n < doc->nterms; n++)
+    {
+        gsl_vector_view scaledbeta = gsl_matrix_row(var->scaledbetamatrix, n);
+        gsl_vector_view cbhz_params = gsl_matrix_row(var->cbhz_params_matrix, n);
+        gsl_blas_dcopy(mod->topic_beta, &scaledbeta.vector);
+        gsl_vector_scale(&scaledbeta.vector, (double)doc->count[n] / (double)doc->total);
+        for (int i = 0; i < mod->k; i++)
+            vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+    }
 }
 
 
@@ -677,12 +682,22 @@ llna_var_param * new_llna_var_param(int nterms, int k)
     llna_var_param * ret = malloc(sizeof(llna_var_param));
     if (ret != NULL)
     {
-        ret->lambda = gsl_vector_alloc(k);
-        ret->nu = gsl_vector_alloc(k);
-        ret->phi = gsl_matrix_alloc(nterms, k);
-        ret->log_phi = gsl_matrix_alloc(nterms, k);
+        int ntemp = 4;
+        ret->lambda = gsl_vector_calloc(k);
+        ret->nu = gsl_vector_calloc(k);
+        ret->phi = gsl_matrix_calloc(nterms, k);
+        ret->log_phi = gsl_matrix_calloc(nterms, k);
         ret->zeta = 0;
-        ret->topic_scores = gsl_vector_alloc(k);
+        ret->topic_scores = gsl_vector_calloc(k);
+        ret->tempvector = malloc(sizeof(gsl_vector*) * ntemp);
+        if (ret->tempvector != NULL && ntemp > 0)
+        {
+            for (int i = 0; i < ntemp; i++)
+                ret->tempvector[i] = gsl_vector_calloc((size_t)k - 1);
+        }
+        ret->cbhz_params_matrix = gsl_matrix_calloc(nterms, k); //for temporary working 
+        ret->scaledbetamatrix = gsl_matrix_calloc(nterms, k); //for temporary working 
+
         return(ret);
     }
     else
@@ -692,11 +707,16 @@ llna_var_param * new_llna_var_param(int nterms, int k)
 
 void free_llna_var_param(llna_var_param * v)
 {
+    int ntemp = 4;
     gsl_vector_free(v->lambda);
     gsl_vector_free(v->nu);
     gsl_matrix_free(v->phi);
     gsl_matrix_free(v->log_phi);
     gsl_vector_free(v->topic_scores);
+    for (int i = 0; i < ntemp; i++)
+        free(v->tempvector[i]);
+    gsl_matrix_free(v->scaledbetamatrix);
+    gsl_matrix_free(v->cbhz_params_matrix);
     free(v);
 }
 

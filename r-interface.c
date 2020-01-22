@@ -89,7 +89,7 @@ void r_set_mod(int * k, int * nterms,
     global_mod.inv_cov = r_to_gsl_matrix(inv_cov, global_mod.k-1, global_mod.k-1);
     global_mod.cov = r_to_gsl_matrix(cov, global_mod.k-1, global_mod.k-1);
     global_mod.log_det_inv_cov = *log_det_inv_cov;
-    init_temp_vectors(global_mod.k-1);
+  //  init_temp_vectors(global_mod.k-1);
     default_params();
 }
 

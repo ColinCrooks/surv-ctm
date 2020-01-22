@@ -42,6 +42,10 @@ typedef struct llna_var_param {
     short converged;
     double lhood;
     gsl_vector * topic_scores;
+    gsl_vector** tempvector; // for temporary working
+    gsl_matrix* cbhz_params_matrix; //for temporary working 
+    gsl_matrix* scaledbetamatrix; //for temporary working 
+
 } llna_var_param;
 
 

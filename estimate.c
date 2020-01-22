@@ -490,7 +490,6 @@ void em(char* dataset, int k, char* start, char* dir)
     time_t t1,t2;
     double avg_niter, converged_pct, old_conv = 0;
     gsl_matrix *corpus_lambda, *corpus_nu, *corpus_phi_sum;
-    short reset_var = 1;
 
     // read the data and make the directory
 
@@ -545,13 +544,15 @@ void em(char* dataset, int k, char* start, char* dir)
     corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
 	printf("gsl allocated\t");
     time(&t1);
-    init_temp_vectors((model->k)-1); // !!! hacky
+    //init_temp_vectors((model->k)-1); // !!! hacky
     model->iteration = 0;
     sprintf(string, "%s/%03d", dir, model->iteration);
     write_llna_model(model, string);
     double C = 0.0;
     double newC = 0.0;
     double Change = 0.0;
+    int reset_var = 1;
+
     do
     {
         if (convergence <= model->em_convergence && model->iteration > 0)
@@ -569,92 +570,46 @@ void em(char* dataset, int k, char* start, char* dir)
         expectation(corpus, model, ss, &avg_niter, &lhood,
                     corpus_lambda, corpus_nu, corpus_phi_sum,
                     reset_var, &converged_pct);
+
         printf("Expectation likelihood %5.5e \t ", lhood);
         printf("%5.0f percent documents converged\n", converged_pct*100);
         convergence = (lhood_old - lhood) / lhood_old;
         int base_index = 0;
-        double f = 0.0;
+        double f = 0.0; 
+     //   gsl_vector_set_zero(model->topic_beta);
         int cox_iter = cox_reg_dist(model, corpus, &f, base_index);
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);
         newC = cstat(corpus, model);
 
-        if (convergence < 0)
+        if (convergence < 0 && PARAMS.runin!=model->iteration )
         {
-            reset_var = 0;
-            gsl_vector_set_zero(model->topic_beta);
-            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10;
-            if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10;
+            reset_var = 0; //retry using global lambda and mu for starting point for variational inference parameters if didn't converge from random start
+            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocaitons
+            if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10; // provide longer for convergence
             else model->var_convergence /= 10;  
         }
         else
         {
             reset_var = 1;
+            maximization(model, ss);
+            lhood_old = lhood;
+            model->iteration++;
         }
-        maximization(model, ss);
-        lhood_old = lhood;
-        model->iteration++;
+
 
         time(&t1);
         printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
-        fprintf(lhood_fptr, "%ld %5.5e %5.5e %I64u %5.5f %1.5f %1.5f\n",
-            model->iteration, lhood, convergence, (int)t2 - t1, avg_niter, converged_pct, newC);
+        fprintf(lhood_fptr, "%ld %5.5e %5.5e %5.5f %1.5f %1.5f\n",
+            model->iteration, lhood, convergence, avg_niter, converged_pct, newC);
         Change = newC - C;
         C = newC;
-
-        //Survival supervision
-//        double max_ss = 0.0;
-     /*   gsl_vector* zsum = gsl_vector_calloc(model->k);
-        col_sum(corpus->zbar, zsum);
-        for (int i = 0; i < model->k; i++)
-        {
-            if (max_ss < vget(zsum, i))
-            {
-                base_index = i;
-                max_ss = vget(zsum, i);
-            }
-        }
-        */
-         //   }
-
-            //permute_groups(corpus);
-            //    int nthreads = omp_get_num_procs();
-
-            //gsl_vector* beta = gsl_vector_calloc(model->k);
-            //for (int i = 0; i < model->k; i++)
-            //    vset(beta, i, vget(model->topic_beta, i));
-            //gsl_vector_set_zero(model->topic_beta);
-
-           
-
-
-//#pragma omp parallel reduction(+:f, cox_iter) default(none) shared(corpus, model, PARAMS, base_index)  firstprivate(beta)
-//            {
-//                int group = omp_get_thread_num(); // get rank of current
-//                cox_iter = cox_reg_dac(model, corpus, &f, group, base_index, beta);
-//#pragma omp critical
-//                for (int i = 0; i < model->k; i++)
-//                    vinc(model->topic_beta, i, vget(beta, i) / (double) model->k);
-//            }
-//            gsl_vector_free(beta);
-
-         //   cox_iter = cox_reg(model, corpus, &f, base_index);
-        /* if (((iteration % PARAMS.lag) == 0) || isnan(lhood))
-        {
-            sprintf(string, "%s/%03d", dir, iteration);
-            write_llna_model(model, string);
-            sprintf(string, "%s/%03d-lambda.dat", dir, iteration);
-            printf_matrix(string, corpus_lambda);
-            sprintf(string, "%s/%03d-nu.dat", dir, iteration);
-            printf_matrix(string, corpus_nu);
-        }*/
-
         fflush(lhood_fptr);
         reset_llna_ss(ss);
         old_conv = convergence;
     }
-    while ((model->iteration <= PARAMS.runin + 1) || (/*Change < 0 &&*/ (model->iteration < PARAMS.em_max_iter) &&
-           (((fabs(convergence) > PARAMS.em_convergence) ))));
+    while ((model->iteration <= PARAMS.runin + 1) || (Change > 0 && (model->iteration < PARAMS.em_max_iter) &&
+           (fabs(convergence) > PARAMS.em_convergence) ));
 
     maximization(model, ss);
     int base_index = 0;
@@ -705,7 +660,7 @@ void inference(char* dataset, char* model_root, char* out)
     gsl_matrix * phi_sums = gsl_matrix_alloc(corpus->ndocs, model->k);
 
     // approximate inference
-    init_temp_vectors(model->k-1); // !!! hacky
+   // init_temp_vectors(model->k-1); // !!! hacky
     sprintf(fname, "%s-word-assgn.dat", out);
     FILE* word_assignment_file = fopen(fname, "w");
     for (i = 0; i < corpus->ndocs; i++)
@@ -797,8 +752,8 @@ int pod_experiment(char* observed_data, char* heldout_data,
     model = read_llna_model(model_root);
 
     // run experiment
-    init_temp_vectors(model->k-1); // !!! hacky
-    log_lhood = gsl_vector_alloc(obs->ndocs + (int) 1);
+   // init_temp_vectors(model->k-1); // !!! hacky
+    log_lhood = gsl_vector_alloc((size_t)obs->ndocs + 1);
     e_theta = gsl_vector_alloc(model->k);
     for (i = 0; i < obs->ndocs; i++)
     {

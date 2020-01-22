@@ -188,8 +188,8 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 
 	for (int person = rank * c->ndocs / size; person < (rank + 1) * c->ndocs / size; person++)
 	{
-		int t_enter = (int) c->docs[person].t_enter;
-		int t_exit = (int) c->docs[person].t_exit;
+		unsigned int t_enter = (unsigned int) c->docs[person].t_enter;
+		unsigned int t_exit = (unsigned int) c->docs[person].t_exit;
 
 		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
 		double expxb = exp(vget(c->zbeta, person));
@@ -199,9 +199,9 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 		//vprint(beta);
 		//printf("\n");
 		//assert(!isnan(xb));
-		gsl_vector_view timeupdate = gsl_vector_subvector(cumulrisk, t_enter, t_exit - t_enter + (int) 1);
-		gsl_vector_view timeupdate2 = gsl_vector_subvector(cumulgdiag, t_enter, t_exit - t_enter + (int) 1);
-		gsl_vector_view timeupdate3 = gsl_vector_subvector(cumulhdiag, t_enter, t_exit - t_enter + (int) 1);
+		gsl_vector_view timeupdate = gsl_vector_subvector(cumulrisk, t_enter, (size_t)t_exit - (size_t)t_enter +  1);
+		gsl_vector_view timeupdate2 = gsl_vector_subvector(cumulgdiag, t_enter, (size_t)t_exit - (size_t)t_enter +  1);
+		gsl_vector_view timeupdate3 = gsl_vector_subvector(cumulhdiag, t_enter, (size_t)t_exit - (size_t)t_enter +  1);
 		gsl_vector_add_constant(&timeupdate.vector, expxb);
 		gsl_vector_add_constant(&timeupdate2.vector, z);
 		gsl_vector_add_constant(&timeupdate3.vector, zz);
@@ -275,13 +275,6 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 				gsl_vector* cumul2risk_private = gsl_vector_calloc(ntimes);
 				gsl_vector* cumulg2diag_private = gsl_vector_calloc(ntimes);
 				gsl_vector* cumulh2diag_private = gsl_vector_calloc(ntimes);
-				gsl_vector_set_zero(cumulrisk_private);
-				gsl_vector_set_zero(cumulgdiag_private);
-				gsl_vector_set_zero(cumulhdiag_private);
-				gsl_vector_set_zero(cumul2risk_private);
-				gsl_vector_set_zero(cumulg2diag_private);
-				gsl_vector_set_zero(cumulh2diag_private);
-
 				cox_reg_accumulation(model, c, size, rank, bn, beta, cumulrisk_private, cumulgdiag_private, cumulhdiag_private, 
 					cumul2risk_private, cumulg2diag_private, cumulh2diag_private);
 
@@ -381,155 +374,5 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 }
 
 
-int cox_reg_dac(llna_model* model, corpus* c, double* f, int group, int base_index, gsl_vector* beta)
-{
-	//Mittal, S., Madigan, D., Burd, R. S., & Suchard, M. a. (2013). High-dimensional, massive sample-size Cox proportional hazards regression for survival analysis. Biostatistics (Oxford, England), 1–15. doi:10.1093/biostatistics/kxt043
-	int i,k, groupperson, person, iter, r;
-	int nvar = model->k;
-	int nused = (int) c->group->size1, lastvar = 0;
-	int ntimes = model->range_t;
-	double  risk = 0.0, temp = 0.0, temp2 = 0.0, loglik = 0.0, newlk = 0.0, d2 = 0.0, efron_wt = 0.0;
-	double dif = 0.0, a2 = 0.0, cdiag2 = 0.0, gdiag = 0.0, hdiag = 0.0;
 
-	gsl_vector* denom = gsl_vector_calloc(ntimes);
-	gsl_vector* a = gsl_vector_calloc(ntimes);
-	gsl_vector* cdiag = gsl_vector_calloc(ntimes);
-	gsl_vector* step = gsl_vector_calloc(nvar);
-	gsl_vector* zbeta = gsl_vector_calloc(nused);
-	gsl_vector_set_zero(zbeta);
-	gsl_vector_set_all(step, 1.0);
-	// Find baseline topic with most allocations
-
-	efron_wt = 0.0;
-
-	gdiag = 0.0;
-	hdiag = 0.0;
-	a2 = 0.0;
-	cdiag2 = 0.0;
-
-	for (person=nused-1; person >=0; person--)
-	{
-		
-		groupperson = (int) mget(c->group, person, group);
-		if (groupperson == -1)
-		{
-			nused--;
-			continue;
-		}
-		int t_enter = c->docs[person].t_enter;
-		int t_exit = c->docs[person].t_exit;
-		int label = c->docs[person].label;
-		int mark = (int) mget(c->mark, person, group);
-
-		double z = 0;
-		for (i = 0; i < nvar; i++)
-		{
-			if (i == base_index) continue;
-			z+= mget(c->zbar, groupperson, i) * vget(beta,i);
-		}
-		z = z > 22 ? 22 : z;
-		z = z < -200 ? -200 : z;
-
-		vset(zbeta, person, z);
-	}
-	for (iter=1; iter<=PARAMS.surv_max_iter;  iter++)
-	{
-		newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double) nvar-1));
-		for (i = 0; i < nvar; i++)
-		{
-			if (i == base_index) continue;
-			/*
-			** The data is sorted from smallest time to largest
-			** Start at the largest time, accumulating the risk set 1 by 1
-			*/
-			gsl_vector_set_zero(denom);
-			gsl_vector_set_zero(a);
-			gsl_vector_set_zero(cdiag);
-
-			efron_wt = 0.0;
-			
-			gdiag = 0.0;
-			hdiag = 0.0;
-			a2 = 0.0;
-			cdiag2 = 0.0;
-
-			for (person = nused - 1; person >= 0; person--)
-			{
-				groupperson = (int) mget(c->group, person, group);
-				if (groupperson == -1) continue;
-
-				// calculate or access things once per loop
-				int t_enter = c->docs[person].t_enter;
-				int t_exit = c->docs[person].t_exit;
-				int label = c->docs[person].label;
-				int mark = (int) mget(c->mark, person, group);
-				double xb = vget(zbeta, person) - (dif * mget(c->zbar, groupperson, lastvar));
-				xb = xb > 22 ? 22 : xb;
-				xb = xb < -200 ? -200 : xb;
-				vset(zbeta, person, xb);
-				risk = exp(xb);
-				double z = mget(c->zbar, groupperson, i);
-				int t = t_exit - t_enter;
-
-				//cumumlative sums for all patients
-				for (r = t_enter; r <= t_exit; r++)
-				{
-					vinc(denom, r, risk);
-					vinc(a, r, risk * z);
-					vinc(cdiag, r,  risk * z * z);
-				}
-				if (label > 0)
-				{
-					//cumumlative sums for event patients
-					newlk += z;
-					gdiag -= xb;
-
-					efron_wt += risk; /* sum(denom) for tied deaths*/
-					a2 += risk * z;
-					cdiag2 += risk * z * z;
-				}
-				/* once per unique death time */
-				for (k = 0; k < mark; k++)
-				{
-					temp = (double) k
-						/ (double) mark;
-					d2 = vget(denom, t_exit) - (temp * efron_wt); /* sum(denom) adjusted for tied deaths*/
-					newlk -= log(d2);
-					temp2 = (vget(a, t_exit) - (temp * a2)) / d2;
-					gdiag += temp2;
-					hdiag += ((vget(cdiag, t_exit) - (temp * cdiag2)) / d2) -
-						(temp2 * temp2);
-				}
-				efron_wt = 0.0;
-				a2 = 0.0;
-				cdiag2 = 0.0;
-				
-			}   /* end  of accumulation loop  */
-
-			dif = (gdiag + (vget(beta, i) / PARAMS.surv_penalty)) / (hdiag + (1.0 / PARAMS.surv_penalty));
-			if (fabs(dif) > vget(step, i))	
-				dif = (dif > 0.0) ? vget(step, i) : -vget(step, i);
-
-			vset(step, i, ((2.0 * fabs(dif)) > (vget(step, i) / 2.0)) ? 2.0 * fabs(dif) : (vget(step, i) / 2.0)); //Genkin, A., Lewis, D. D., & Madigan, D. (2007). Large-Scale Bayesian Logistic Regression for Text Categorization. Technometrics, 49(3), 291–304. doi:10.1198/004017007000000245
-			vinc(beta, i, -dif);
-			lastvar = i;
-		}
-		
-		for (i = 0; i < nvar; i++)
-		{
-			if (i == base_index) continue;
-			newlk -= (vget(beta, i) * vget(beta, i)) / (2.0 * PARAMS.surv_penalty);
-		}
-		if (fabs(1.0 - (newlk / loglik)) <= model->surv_convergence) break;
-		loglik = newlk;
-	}   /* return for another iteration */
-
-	* f = loglik;
-	gsl_vector_free(step);
-	gsl_vector_free(denom);
-	gsl_vector_free(a);
-	gsl_vector_free(cdiag);
-	gsl_vector_free(zbeta);
-	return iter;
-}
 

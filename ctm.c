@@ -47,15 +47,15 @@ llna_model* new_llna_model(int ntopics, int nterms, int range_t)
     if (model != NULL)
     {
         model->k = ntopics;
-        model->em_convergence = 0.1;
-        model->var_convergence = 0.01;
-        model->cg_convergence = 0.01;
-        model->surv_convergence = 0.01;
+        model->em_convergence = 0.001;
+        model->var_convergence = 0.001;
+        model->cg_convergence = 0.001;
+        model->surv_convergence = 0.001;
         model->iteration = 0;
         model->range_t = range_t;
-        model->mu = gsl_vector_calloc(ntopics - (int) 1);
-        model->cov = gsl_matrix_calloc(ntopics -(int) 1, ntopics - (int) 1);
-        model->inv_cov = gsl_matrix_calloc(ntopics - (int) 1, ntopics - (int)1);
+        model->mu = gsl_vector_calloc((size_t)ntopics - 1);
+        model->cov = gsl_matrix_calloc((size_t)ntopics - 1, (size_t)ntopics -  1);
+        model->inv_cov = gsl_matrix_calloc((size_t)ntopics - 1, (size_t)ntopics - 1);
         model->log_omega = gsl_matrix_calloc(ntopics, nterms);
         model->topic_beta = gsl_vector_calloc(ntopics);
         model->cbasehazard = gsl_vector_calloc(range_t);
@@ -78,8 +78,8 @@ llna_ss * new_llna_ss(llna_model* model)
     ss = malloc(sizeof(llna_ss));
     if (ss != NULL)
     {
-        ss->mu_ss = gsl_vector_calloc((model->k) - (int) 1);
-        ss->cov_ss = gsl_matrix_calloc((model->k) - (int) 1, (model->k) - (int) 1);
+        ss->mu_ss = gsl_vector_calloc((size_t)(model->k) -  1);
+        ss->cov_ss = gsl_matrix_calloc((size_t)(model->k) - 1, (size_t)(model->k) - 1);
         ss->omega_ss = gsl_matrix_calloc(model->k, model->log_omega->size2);
         ss->ndata = 0;
         reset_llna_ss(ss);

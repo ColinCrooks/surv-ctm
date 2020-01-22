@@ -65,7 +65,7 @@ corpus* read_data(const char* data_filename)
             linefeed += pos;
             //printf("Document number:%d read in %d digits ", nd, pos);
             //printf("%d,%d,%d,%d \n", label, t_enter, t_exit, length);
-            c->docs = (doc*)realloc(c->docs, sizeof(doc) * ((int) nd + 1));
+            c->docs = (doc*)realloc(c->docs, sizeof(doc) * ((size_t) nd +  1));
             if (c->docs != NULL)
             {
                 c->docs[nd].label = label;
@@ -273,8 +273,8 @@ void init_doc(doc* d, int max_nterms)
     {
         for (i = 0; i < max_nterms; i++)
         {
-            d->word[i] = (int) 0;
-            d->count[i] = (int) 0;
+            d->word[i] =  0;
+            d->count[i] =  0;
         }
     }
 }

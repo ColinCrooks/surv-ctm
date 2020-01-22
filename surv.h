@@ -21,7 +21,6 @@
 extern llna_params PARAMS;
 
 int cox_reg(llna_model* model, corpus* c, double* f, int base);
-int cox_reg_dac(llna_model* model,	corpus* c, double* f, int group, int base, gsl_vector* betas);
 int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index);
 void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int bn,
 	gsl_vector* beta, gsl_vector* cumulrisk, gsl_vector* cumulgdiag, gsl_vector* cumulhdiag,
