@@ -170,7 +170,6 @@ corpus* read_data(const char* data_filename)
     gsl_vector_free(permuted);
     
     //set counts of events for each time point within each group for efficient cox regression
-    int events = 0;
     c->mark = gsl_matrix_calloc(group_length, ngroups);
     gsl_matrix_set_zero(c->mark);
 

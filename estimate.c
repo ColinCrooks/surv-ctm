@@ -156,7 +156,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
 void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
 {
     int p = (int) mle->size1, i;
-    double temp = 0, alpha = 0, tau = 0, log_lambda_s = 0;
+    double alpha = 0, tau = 0, log_lambda_s = 0;
     gsl_vector
         *lambda_star = gsl_vector_calloc(p),
         t, u,
@@ -173,10 +173,7 @@ void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
     sym_eigen(mle, eigen_vals, eigen_vects);
     for (i = 0; i < p; i++)
     {
-
         // compute shrunken eigenvalues
-
-        temp = 0;
         alpha = 1.0 / ( (double) n + (double) p + 1 - 2 * (double) i);
         vset(lambda_star, i, n * alpha * vget(eigen_vals, i));
     }
@@ -295,9 +292,7 @@ llna_model* em_initial_model(int k, corpus* corpus, char* start)
     gsl_vector* events = gsl_vector_calloc(range_t);
     gsl_vector* xb = gsl_vector_calloc(range_t);
     corpus->zbar = gsl_matrix_calloc(corpus->ndocs, k);
-    gsl_vector_set_zero(events);
-    gsl_matrix_set_zero(corpus->zbar);
-    gsl_vector_set_zero(xb);
+
     for (d = (corpus->ndocs) - 1; d >= 0; d--)
     {
         if (corpus->docs[d].t_exit > 0)
@@ -488,7 +483,7 @@ void em(char* dataset, int k, char* start, char* dir)
     llna_model *model;
     llna_ss* ss;
     time_t t1,t2;
-    double avg_niter, converged_pct, old_conv = 0;
+    double avg_niter, converged_pct;
     gsl_matrix *corpus_lambda, *corpus_nu, *corpus_phi_sum;
 
     // read the data and make the directory
@@ -501,7 +496,7 @@ void em(char* dataset, int k, char* start, char* dir)
     }
     //mkdir(dir, S_IRUSR|S_IWUSR|S_IXUSR);
     int chk = 1;
-    if (_mkdir(dir) != 0)
+    if (mkd(dir) != 0)
     {
         if (errno == EEXIST)
         {
@@ -515,7 +510,7 @@ void em(char* dataset, int k, char* start, char* dir)
                 strcpy(dirupdated, dir);
                 strcat(dirupdated, up);
                 printf("Directory already exists. Changing to %s\n", dirupdated);
-                chk = _mkdir(dirupdated);
+                chk = mkd(dirupdated);
                 p += 1;
              }
             dir = dirupdated;
@@ -535,7 +530,9 @@ void em(char* dataset, int k, char* start, char* dir)
 
     model = em_initial_model(k, corpus, start);
     if (model == NULL)
+    {
         return;
+    }
 	printf("model initialised\n");
     ss = new_llna_ss(model);
 	printf("New ss\t");
@@ -552,7 +549,7 @@ void em(char* dataset, int k, char* start, char* dir)
     double newC = 0.0;
     double Change = 0.0;
     int reset_var = 1;
-
+    int cox_iter = 0;
     do
     {
         if (convergence <= model->em_convergence && model->iteration > 0)
@@ -577,7 +574,12 @@ void em(char* dataset, int k, char* start, char* dir)
         int base_index = 0;
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
-        int cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+        cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+        while (cox_iter <= 0)
+        {
+            PARAMS.surv_penalty /= 10;
+            cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+        }
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);
         newC = cstat(corpus, model);
@@ -600,23 +602,16 @@ void em(char* dataset, int k, char* start, char* dir)
 
         time(&t1);
         printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
-        fprintf(lhood_fptr, "%ld %5.5e %5.5e %5.5f %1.5f %1.5f\n",
+        fprintf(lhood_fptr, "%d %5.5e %5.5e %5.5f %1.5f %1.5f\n",
             model->iteration, lhood, convergence, avg_niter, converged_pct, newC);
         Change = newC - C;
         C = newC;
         fflush(lhood_fptr);
         reset_llna_ss(ss);
-        old_conv = convergence;
     }
     while ((model->iteration <= PARAMS.runin + 1) || (Change > 0 && (model->iteration < PARAMS.em_max_iter) &&
            (fabs(convergence) > PARAMS.em_convergence) ));
 
-    maximization(model, ss);
-    int base_index = 0;
-    double f = 0.0;
-    int cox_iter = cox_reg_dist(model, corpus, &f, base_index);
-    cumulative_basehazard(corpus, model);
-    vprint(model->topic_beta);
 
     printf("Converged: \n Final likelihood %5.5e \t final C statistic = %f\n", lhood, cstat(corpus, model));
 
@@ -643,56 +638,90 @@ void em(char* dataset, int k, char* start, char* dir)
 
 void inference(char* dataset, char* model_root, char* out)
 {
-    int i;
     char fname[100];
-
     // read the data and model
     corpus * corpus = read_data(dataset);
     llna_model * model = read_llna_model(model_root);
     if (model == NULL)
-    {
         return;
+    int chk = 1;
+    if (mkd(out) != 0)
+    {
+        if (errno == EEXIST)
+        {
+            int p = 0;
+            char up[10];
+            char* outupdated;
+            while (chk != 0 && errno == EEXIST)
+            {
+                sprintf(up, "%d", p);
+                outupdated = (char*)malloc(1 + strlen(out) + strlen(up));
+                strcpy(outupdated, out);
+                strcat(outupdated, up);
+                printf("Directory already exists. Changing to %s\n", outupdated);
+                chk = mkd(outupdated);
+                p += 1;
+            }
+            out = outupdated;
+        }
+        if (errno == ENOENT)
+        {
+            printf("Directory path invalid. Please try again\n");
+            return;
+        }
     }
-    gsl_vector * lhood = gsl_vector_alloc(corpus->ndocs);
-    gsl_matrix * corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
-    gsl_matrix * corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
-    // gsl_matrix * topic_lhoods = gsl_matrix_alloc(corpus->ndocs, model->k);
-    gsl_matrix * phi_sums = gsl_matrix_alloc(corpus->ndocs, model->k);
+
+    gsl_vector * lhood = gsl_vector_calloc(corpus->ndocs);
+    gsl_matrix * corpus_nu = gsl_matrix_calloc(corpus->ndocs, model->k);
+    gsl_matrix * corpus_lambda = gsl_matrix_calloc(corpus->ndocs, model->k);
+    corpus->zbar = gsl_matrix_calloc(corpus->ndocs, model->k);
+    gsl_matrix * phi_sums = gsl_matrix_calloc(corpus->ndocs, model->k);
 
     // approximate inference
    // init_temp_vectors(model->k-1); // !!! hacky
-    sprintf(fname, "%s-word-assgn.dat", out);
-    FILE* word_assignment_file = fopen(fname, "w");
-    for (i = 0; i < corpus->ndocs; i++)
+ //   sprintf(fname, "%s-word-assgn.dat", out);
+ //   FILE* word_assignment_file = fopen(fname, "w");
+#pragma omp parallel default(none) shared(corpus, model, corpus_lambda,  corpus_nu, phi_sums, lhood, PARAMS) /* for (i = 0; i < corpus->ndocs; i++) */
     {
-        doc doc = corpus->docs[i];
-        llna_var_param * var = new_llna_var_param(doc.nterms, model->k);
-        if (var == NULL)
+        int i, j;
+        int size = omp_get_num_threads(); // get total number of processes
+        int rank = omp_get_thread_num(); // get rank of current
+        for (i = (rank * corpus->ndocs / size); i < (rank + 1) * corpus->ndocs / size; i++)
         {
-            return;
+            doc doc = corpus->docs[i];
+            llna_var_param* var = new_llna_var_param(doc.nterms, model->k);
+            init_var_unif(var, &doc, model);
+
+            vset(lhood, i, var_inference(var, &doc, model));
+            gsl_matrix_set_row(corpus_lambda, i, var->lambda);
+            gsl_matrix_set_row(corpus_nu, i, var->nu);
+            gsl_vector curr_row = gsl_matrix_row(phi_sums, i).vector;
+            col_sum(var->phi, &curr_row);
+            // Allocated topics for survival supervision
+            for (int n = 0; n < doc.nterms; n++)
+                for (j = 0; j < model->k; j++)
+                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double)doc.count[n] / (double)doc.total);
+        //    write_word_assignment(word_assignment_file, &doc, var->phi);
+
+        //    printf("document %05d, niter = %05d\n", i, var->niter);
+            free_llna_var_param(var);
         }
-        init_var_unif(var, &doc, model);
-
-        vset(lhood, i, var_inference(var, &doc, model));
-        gsl_matrix_set_row(corpus_lambda, i, var->lambda);
-        gsl_matrix_set_row(corpus_nu, i, var->nu);
-        gsl_vector curr_row = gsl_matrix_row(phi_sums, i).vector;
-        col_sum(var->phi, &curr_row);
-        write_word_assignment(word_assignment_file, &doc, var->phi);
-
-        printf("document %05d, niter = %05d\n", i, var->niter);
-        free_llna_var_param(var);
     }
 
+    cumulative_basehazard(corpus, model);
+    printf("\n C statistic = %1.3f\n", cstat(corpus, model));
+
     // output likelihood and some variational parameters
-    sprintf(fname, "%s-ctm-lhood.dat", out);
+    sprintf(fname, "%s/inf-ctm-lhood.dat", out);
     printf_vector(fname, lhood);
-    sprintf(fname, "%s-lambda.dat", out);
+    sprintf(fname, "%s/inf-lambda.dat", out);
     printf_matrix(fname, corpus_lambda);
-    sprintf(fname, "%s-nu.dat", out);
+    sprintf(fname, "%s/inf-nu.dat", out);
     printf_matrix(fname, corpus_nu);
-    sprintf(fname, "%s-phi-sum.dat", out);
+    sprintf(fname, "%s/inf-sum.dat", out);
     printf_matrix(fname, phi_sums);
+    sprintf(fname, "%s/inf-zbar.dat", out);
+    printf_matrix(fname, corpus->zbar);
 
 }
 

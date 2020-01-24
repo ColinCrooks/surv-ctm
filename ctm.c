@@ -131,10 +131,10 @@ llna_model* corpus_init(int ntopics, corpus* corpus)
     double sum;
     time_t seed;
     time(&seed);
-    printf("SEED = %lld\n", seed);
-    printf("USING 1115574245\n");
-    gsl_rng_set(r, (long) 1115574245);
-    // gsl_rng_set(r, (long) seed);
+    printf("SEED = %I64d\n", seed);
+   // printf("USING 1115574245\n");
+   // gsl_rng_set(r, (long) 1115574245);
+     gsl_rng_set(r, (long) seed);
     // gsl_rng_set(r, (long) 432403824);
 
     // gaussian

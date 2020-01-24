@@ -153,18 +153,16 @@ int cox_reg(llna_model* model, corpus* c, double* f, int base_index)
 void cox_reg_distr_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank)
 {
 	int nused = c->ndocs;
-	int nvar = model->k;
-	int ntimes = model->range_t;
+	int nvar = model->k - 1;
 	gsl_matrix_set_zero(sum_zbar_events_cumulative);
 
-	for (int person = rank * c->ndocs / size; person < (rank + 1) * c->ndocs / size; person++)
+	for (int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
 	{
-		int t_enter = c->docs[person].t_enter;
 		int t_exit = c->docs[person].t_exit;
 		int label = c->docs[person].label;
 		if (label > 0)
 		{
-			gsl_vector_view personzbar = gsl_matrix_row(c->zbar, person);
+			gsl_vector_view personzbar = gsl_matrix_subrow(c->zbar, person, 0, nvar);
 			gsl_vector_view timeszbar = gsl_matrix_row(sum_zbar_events_cumulative, t_exit);
 			gsl_vector_add(&timeszbar.vector, &personzbar.vector);
 		}
@@ -177,21 +175,20 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 	gsl_vector* beta, gsl_vector* cumulrisk, gsl_vector* cumulgdiag, gsl_vector* cumulhdiag, 
 	gsl_vector* cumul2risk, gsl_vector* cumulg2diag, gsl_vector* cumulh2diag)
 {
-	int nvar = model->k;
 	int nused = c->ndocs;
-	int ntimes = model->range_t;
+	int nvar = model->k-1;
 	int start = rank * c->ndocs / size;
 	int nrows = (c->ndocs / size) - 1;
 	gsl_matrix_view personrisk = gsl_matrix_submatrix(c->zbar, start, 0, nrows, nvar);
 	gsl_vector_view zb = gsl_vector_subvector(c->zbeta, start, nrows);
 	gsl_blas_dgemv(CblasNoTrans, 1.0, &personrisk.matrix, beta, 0.0, &zb.vector);
 
-	for (int person = rank * c->ndocs / size; person < (rank + 1) * c->ndocs / size; person++)
+	for (int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
 	{
 		unsigned int t_enter = (unsigned int) c->docs[person].t_enter;
 		unsigned int t_exit = (unsigned int) c->docs[person].t_exit;
 
-		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view zbar = gsl_matrix_subrow(c->zbar, person,0,nvar);
 		double expxb = exp(vget(c->zbeta, person));
 		double z = expxb * vget(&zbar.vector, bn);
 		double zz = z *  vget(&zbar.vector, bn);		
@@ -222,8 +219,7 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 
 int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 {
-	int iter, nvar = model->k;
-	int nused = c->ndocs;
+	int iter, nvar = model->k - 1;
 	int ntimes = model->range_t;
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, nvar);
 	gsl_matrix_set_zero(sum_zbar);
@@ -244,10 +240,10 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 	gsl_vector* cumul2risk = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulg2diag = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulh2diag = gsl_vector_calloc(ntimes);
-	gsl_vector* step = gsl_vector_calloc(nvar);
+	gsl_vector* step = gsl_vector_alloc(nvar);
 	gsl_vector_set_all(step, 1.0);
-
-	gsl_vector_memcpy(beta, model->topic_beta);
+	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
+	gsl_blas_dcopy(&topic_beta.vector, beta);
 	double loglik = 0.0;
 	for (iter = 1; iter <= PARAMS.surv_max_iter; iter++)
 	{
@@ -329,7 +325,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 			if (isn(vget(beta,bn)))
 				return INT_MIN;
 
-#pragma omp parallel default(none) shared(c, bn, nused, dif)  /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel default(none) shared(c, bn, dif)  /* for (i = 0; i < corpus->ndocs; i++) */
 			{
 				int size = omp_get_num_threads(); // get total number of processes
 				int rank = omp_get_thread_num(); // get rank of current
@@ -344,7 +340,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 			}
 
 		}
-		newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double) nvar - 1.0));
+		newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double) nvar )); //- 1.0
 		for (int bn = 0; bn < nvar; bn++)
 		{
 			//if (bn == base_index) continue;
@@ -361,7 +357,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index)
 
 	*f = loglik;
 
-	gsl_vector_memcpy(model->topic_beta, beta);
+	gsl_vector_memcpy(&topic_beta.vector, beta);
 	gsl_matrix_free(sum_zbar);
 	gsl_vector_free(cumulrisk);
 	gsl_vector_free(cumulgdiag);

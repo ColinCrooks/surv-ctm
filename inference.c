@@ -163,14 +163,13 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
 
 void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
 {
-    int i = 0, j = 0, n = 0, k = mod->k;
     gsl_vector_set_zero(var->topic_scores);
 
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
     double cbhz_prod = 1.0;
     double lhood = 0.0;
 
-    for (n = 0; n < doc->nterms; n++)
+    for (int n = 0; n < doc->nterms; n++)
     {
         gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
         gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
@@ -460,7 +459,6 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     bundle b;
     int iter = 0, i;
     int status;
-    double f_old, converged;
 
     b.var = var;
     b.doc = doc;
@@ -493,9 +491,8 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     do
     {
         iter++;
-        f_old = s->f;
         status = gsl_multimin_fdfminimizer_iterate (s);
-        converged = fabs((f_old - s->f) / f_old);
+        // double converged = fabs((f_old - s->f) / f_old);
         // printf("f(lambda) = %5.17e ; conv = %5.17e\n", s->f, converged);
         if (status) break;
         status = gsl_multimin_test_gradient (s->gradient, PARAMS.cg_convergence);
