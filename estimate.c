@@ -571,14 +571,17 @@ void em(char* dataset, int k, char* start, char* dir)
         printf("Expectation likelihood %5.5e \t ", lhood);
         printf("%5.0f percent documents converged\n", converged_pct*100);
         convergence = (lhood_old - lhood) / lhood_old;
-        int base_index = 0;
+        //int base_index = 0;
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
-        cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+       
+       cox_iter = cox_reg_dist(model, corpus, &f);
+     //   cox_iter = cox_reg(model, corpus, &f);
         while (cox_iter <= 0)
         {
             PARAMS.surv_penalty /= 10;
-            cox_iter = cox_reg_dist(model, corpus, &f, base_index);
+           cox_iter = cox_reg_dist(model, corpus, &f);
+       //     cox_iter = cox_reg(model, corpus, &f);
         }
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);

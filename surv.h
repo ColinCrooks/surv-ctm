@@ -20,10 +20,10 @@
 
 extern llna_params PARAMS;
 
-int cox_reg(llna_model* model, corpus* c, double* f, int base);
-int cox_reg_dist(llna_model* model, corpus* c, double* f, int base_index);
-void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int bn,
-	gsl_vector* beta, gsl_vector* cumulrisk, gsl_vector* cumulgdiag, gsl_vector* cumulhdiag,
+int cox_reg(llna_model* model, corpus* c, double* f);
+int cox_reg_dist(llna_model* model, corpus* c, double* f);
+void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int bn, int lastvar, double dif,
+	gsl_vector* beta, gsl_vector* xb, gsl_vector* cumulrisk, gsl_vector* cumulgdiag, gsl_vector* cumulhdiag,
 	gsl_vector* cumul2risk, gsl_vector* cumulg2diag, gsl_vector* cumulh2diag);
 void cox_reg_distr_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank);
 

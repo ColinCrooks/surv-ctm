@@ -53,8 +53,8 @@ typedef struct corpus {
     int min_t;
     int max_t;
     gsl_matrix* zbar;
-    gsl_matrix* mark;
-    gsl_matrix* group;
+    gsl_vector* mark;
+   // gsl_matrix* group;
     gsl_vector* cmark;
     gsl_vector* zbeta;
 } corpus;

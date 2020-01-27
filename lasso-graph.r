@@ -28,7 +28,7 @@ build.graph = function(x, lambda, and=T) {
   n = nrow(x)
   Shat = matrix(F,p,p)
 
-  cat("n=",n," p=",p, " lambda=",lambda,"\n", sep="")
+  #cat("n=",n," p=",p, " lambda=",lambda,"\n", sep="")
   for (j in 1:p) {
     cat(".")
     if (j %% 10 == 0) {

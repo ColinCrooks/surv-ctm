@@ -130,7 +130,7 @@ corpus* read_data(const char* data_filename)
             c->docs[d].t_exit -= min_t;
         }
     }
-
+    /*
     //Allocate each person to a random subset for distributed cox regression
     gsl_vector* random = gsl_vector_calloc(nd);
     gsl_vector* permuted = gsl_vector_calloc(nd);
@@ -168,13 +168,10 @@ corpus* read_data(const char* data_filename)
     gsl_vector_free(temp);
     gsl_vector_free(random);
     gsl_vector_free(permuted);
-    
+    */
     //set counts of events for each time point within each group for efficient cox regression
-    c->mark = gsl_matrix_calloc(group_length, ngroups);
-    gsl_matrix_set_zero(c->mark);
-
+    /*c->mark = gsl_matrix_calloc(group_length, ngroups);
     gsl_vector* gevents = gsl_vector_calloc(ngroups);
-    gsl_vector_set_zero(gevents);
 
     for (d = group_length - 1; d >= 0; d--)
     {
@@ -191,18 +188,20 @@ corpus* read_data(const char* data_filename)
             else if (c->docs[gd].t_exit == c->docs[gprevd].t_exit)
                 vinc(gevents, g, c->docs[gd].label);
         }
-    }
+    }*/
 
     count = 0;
-    c->cmark = gsl_vector_calloc(nd);
-    gsl_vector_set_zero(c->cmark);
+    c->cmark = gsl_vector_calloc(nd); //corpus level event counts
+    c->mark = gsl_vector_calloc((size_t)max_t - min_t + 1); //time level event counts
     c->zbeta = gsl_vector_calloc(nd);
     gsl_vector_set_zero(c->zbeta);
     for (d = nd - 1; d >= 0; d--)
     {
         if (d == 0 || c->docs[d].t_exit != c->docs[d - 1].t_exit)
         {
-            vset(c->cmark, d, (double) count + c->docs[d].label);
+            count += c->docs[d].label;
+            vset(c->cmark, d, (double) count);
+            vset(c->mark, c->docs[d].t_exit, (double)count);
             count = 0;
         }
         else if (c->docs[d].t_exit == c->docs[d - 1].t_exit)
@@ -214,7 +213,7 @@ corpus* read_data(const char* data_filename)
     printf("total             : %d\n", corpus_total);
     printf("Earliest entry: %d, and latest exit: %d\n", min_t, max_t);
 
-    gsl_vector_free(gevents);
+  //  gsl_vector_free(gevents);
     return(c);
 }
 
