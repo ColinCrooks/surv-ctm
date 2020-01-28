@@ -5,9 +5,9 @@ ihat <- build.graph(0.02 , lambdadata, and=T)
 
 library
 
-x = scale(x)
-p = ncol(x)
-n = nrow(x)
+x = scale(lambdadata)
+p = ncol(lambdadata)
+n = nrow(lambdadata)
 Shat = matrix(F,p,p)
 
 #cat("n=",n," p=",p, " lambda=",lambda,"\n", sep="")

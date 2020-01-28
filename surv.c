@@ -4,10 +4,11 @@
 #include <float.h>
 #include <omp.h>
 #include <assert.h>
-#include <math.h>
+#include <mathimf.h>
 #include <limits.h>
 
 
+//Sequential Cox model 
 int cox_reg(llna_model* model, corpus* c, double* f)
 {
 	//Mittal, S., Madigan, D., Burd, R. S., & Suchard, M. a. (2013). High-dimensional, massive sample-size Cox proportional hazards regression for survival analysis. Biostatistics (Oxford, England), 1–15. doi:10.1093/biostatistics/kxt043
@@ -87,8 +88,8 @@ int cox_reg(llna_model* model, corpus* c, double* f)
 					newlk += z * vget(newbeta, i);
 					gdiag -= z;
 
-					sumz += z;
-					sumxb += z * vget(newbeta, i);
+				//	sumz += z;
+				//	sumxb += z * vget(newbeta, i);
 					efron_wt += risk; /* sum(denom) for tied deaths*/
 					a2 += risk * z;
 					cdiag2 += risk * z * z;
@@ -120,8 +121,8 @@ int cox_reg(llna_model* model, corpus* c, double* f)
 			}   /* end  of accumulation loop  */
 			newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double)nvar - 1));
 
-			printf("Sequential dl %f\t", gdiag);
-			printf("dll %f\n", hdiag);
+			//printf("Sequential dl %f\t", gdiag);
+			//printf("dll %f\n", hdiag);
 
 			dif = (gdiag + (vget(newbeta, i) / PARAMS.surv_penalty)) / (hdiag + (1.0 / PARAMS.surv_penalty));
 			if (fabs(dif) > vget(step, i))
@@ -155,6 +156,8 @@ int cox_reg(llna_model* model, corpus* c, double* f)
 	gsl_vector_free(zbeta);
 	return iter;
 }
+
+//Parallel Cox model accumulation
 
 //zbar cumulative sum only needed once as doesn't  change:
 
@@ -236,6 +239,7 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 
 int cox_reg_dist(llna_model* model, corpus* c, double* f)
 {
+	const double PI = 3.141592653589793238463;
 	int iter = 0, nvar = model->k - 1, ntimes = model->range_t;
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 #pragma omp parallel default(none) shared(c, model, sum_zbar, ntimes, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
@@ -273,8 +277,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 		for (int bn = 0; bn < nvar; bn++)
 		{	
 			//if (bn == base_index) continue;
-			double dl = 0.0;
-			double dll = 0.0;
+
 			gsl_vector_set_zero(cumulxb);
 			gsl_vector_set_zero(cumulrisk);
 			gsl_vector_set_zero(cumulgdiag);
@@ -319,8 +322,10 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 		//	if (iter==1) printf("Parrallel beta %d (%f) \t time %d\t sumzbar %f \t cumulxb %f\t cumulrisk %f\t cumulgdiag %f \t cumulhdiag %f \t cumul2risk %f\t cumul2gdiag %f \t cumul2hdiag %f \n",	bn, vget(beta,bn) , ntimes, mget(sum_zbar,1,bn), vget(cumulxb,1), vget(cumulrisk,ntimes-1), vget(cumulgdiag, ntimes-1), vget(cumulhdiag, ntimes-1), vget(cumul2risk, 1), vget(cumulg2diag, 1), vget(cumulh2diag,1));
 
 			int range_t = model->range_t;
-
-#pragma omp parallel reduction(+:dl, dll, newlk) default(none) shared(c, beta, sum_zbar, range_t, bn, cumulxb, cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, ntimes)
+			double dl = 0.0;
+			double dll = 0.0;
+			double lk = 0.0;
+#pragma omp parallel reduction(+:dl, dll, lk) default(none) shared(c, beta, sum_zbar, range_t, bn, cumulxb, cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, ntimes)
 			{
 				int size = omp_get_num_threads(); // get total number of processes
 				int rank = omp_get_thread_num(); // get rank of current
@@ -328,18 +333,20 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 				{
 					double mark = vget(c->mark, r);
 					dl -= mget(sum_zbar, r, bn);
-					newlk += vget(cumulxb, r);
+					lk += vget(cumulxb, r);
 
-					//parnewlk -= (double)mark* vget(cumulrisk, r);
-					//pardl += (double)mark * vget(cumulgdiag, r) / vget(cumulrisk, r);
-					//pardll += ((double)mark * vget(cumulhdiag, r) / vget(cumulrisk, r)) - ((double)mark * (vget(cumulgdiag, r) / vget(cumulrisk, r))* (vget(cumulgdiag, r) / vget(cumulrisk, r)));
-
+				/*	lk -= (double)mark* vget(cumulrisk, r);
+					double temp2 = (double)mark * vget(cumulgdiag, r) / vget(cumulrisk, r);
+					dl += temp2;
+					dll += ((double)mark * vget(cumulhdiag, r) / vget(cumulrisk, r)) - (temp2 * temp2);
+				*/
+					//Using Efron's weights for tied events produces a stabler convergence of the cox model than the above
 					for (int k = 0; k < (int)mark; k++)
 					{
 						double temp = (double)k
 							/ mark;
 						double denom = vget(cumulrisk, r) - (temp * vget(cumul2risk, r));
-						newlk -= safe_log(denom);
+						lk -= safe_log(denom);
 						double temp2 = (vget(cumulgdiag, r) - (temp * vget(cumulg2diag, r))) / denom;
 						dl += temp2;
 						dll += (vget(cumulhdiag, r) - (temp * vget(cumulh2diag, r)) / denom) -
@@ -349,23 +356,18 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 			}
 		//	printf("Iteration = %d, Parrallel dl %f\t",iter, dl);
 		//	printf("dll %f\n",dll);
-
+			newlk += lk;
 			dif = (dl + (vget(beta, bn)/PARAMS.surv_penalty)) / (dll + (1.0 / PARAMS.surv_penalty));
 			if (fabs(dif) > vget(step, bn))
 				dif = dif > 0.0 ? vget(step, bn) : -vget(step, bn);
 			vset(step, bn, ((2.0 * fabs(dif)) > (vget(step, bn) / 2.0)) ? 2.0 * fabs(dif) : vget(step, bn) / 2.0); //Genkin, A., Lewis, D. D., & Madigan, D. (2007). Large-Scale Bayesian Logistic Regression for Text Categorization. Technometrics, 49(3), 291–304. doi:10.1198/004017007000000245
 			vset(beta, bn, (vget(beta, bn) - dif));		
+			newlk -= (vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty);
 			lastvar = bn;
 		}
-		newlk = -(log(sqrt(PARAMS.surv_penalty)) * ((double) nvar )); //- 1.0
-		for (int bn = 0; bn < nvar; bn++)
-		{
-			//if (bn == base_index) continue;
-			newlk -= (vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty);
-		}	
-		//if (isn(newlk))
-		//	return INT_MIN;
-		if (iter > 0 && fabs(1.0 - (newlk / loglik)) <= model->surv_convergence) break;
+		newlk -= safe_log(sqrt(2 * PI * PARAMS.surv_penalty)) * ((double)nvar); //Constant for a particular lambda so unnecessary for convergence, however, when comparing models it is appropriate.(- 1.0 not needed as nvar already -1)
+		if (iter > 0 && fabs(1.0 - (newlk / loglik)) <= model->surv_convergence) 
+			break;
 		loglik = newlk;
 		//vprint(beta);
 	}

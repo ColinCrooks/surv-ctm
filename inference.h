@@ -62,7 +62,6 @@ typedef struct bundle {
  *
  */
 
-void init_temp_vectors(int size);
 int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod);
 void opt_phi(llna_var_param * var, doc * doc, llna_model * mod);
 void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod);

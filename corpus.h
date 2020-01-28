@@ -20,7 +20,7 @@
 #ifndef CORPUS_H
 #define CORPUS_H
 
-#include <math.h>
+#include <mathimf.h>
 #include "gsl-wrappers.h"
 
 #define OFFSET 0

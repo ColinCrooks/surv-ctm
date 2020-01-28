@@ -23,7 +23,7 @@
 // #include <gsl/gsl_check_range.h>
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
-#include <math.h>
+#include <mathimf.h>
 
 // #define MAXFLOAT 3.40282347e+38F
 

@@ -525,7 +525,7 @@ void em(char* dataset, int k, char* start, char* dir)
 
     sprintf(string, "%s/likelihood.dat", dir);
     lhood_fptr = fopen(string, "w");
-
+    write_params(lhood_fptr);
     // run em
 
     model = em_initial_model(k, corpus, start);
@@ -590,7 +590,7 @@ void em(char* dataset, int k, char* start, char* dir)
         if (convergence < 0 && PARAMS.runin!=model->iteration )
         {
             reset_var = 0; //retry using global lambda and mu for starting point for variational inference parameters if didn't converge from random start
-            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocaitons
+            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocations
             if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10; // provide longer for convergence
             else model->var_convergence /= 10;  
         }
@@ -612,7 +612,7 @@ void em(char* dataset, int k, char* start, char* dir)
         fflush(lhood_fptr);
         reset_llna_ss(ss);
     }
-    while ((model->iteration <= PARAMS.runin + 1) || (Change > 0 && (model->iteration < PARAMS.em_max_iter) &&
+    while ((model->iteration <= PARAMS.runin + 1) || ( (model->iteration < PARAMS.em_max_iter) &&
            (fabs(convergence) > PARAMS.em_convergence) ));
 
 

@@ -40,6 +40,7 @@ typedef struct llna_params
 } llna_params;
 
 void read_params(char*);
+void write_params(FILE* fileptr);
 void print_params();
 void default_params();
 

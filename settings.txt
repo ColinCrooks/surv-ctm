@@ -1,12 +1,12 @@
 em max iter 60
-var max iter 50
-cg max iter 50
-surv max iter 50
-em convergence 1e-4
+var max iter 100
+cg max iter 100
+surv max iter 100
+em convergence 1e-5
 var convergence 1e-6
 cg convergence 1e-6
 surv convergence 1e-6
-surv penalty 1e-4
+surv penalty 1e0
 lag 10
-run in 0
+run in 5
 covariance estimate mle

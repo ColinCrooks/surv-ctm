@@ -69,6 +69,24 @@ void print_params()
 }
 
 
+void write_params(FILE* fileptr)
+{
+    fprintf(fileptr, "Parameters used for this iteration:\n");
+    fprintf(fileptr, "em max iter %d\n", PARAMS.em_max_iter);
+    fprintf(fileptr, "var max iter %d\n", PARAMS.var_max_iter);
+    fprintf(fileptr, "cg max iter %d\n", PARAMS.cg_max_iter);
+    fprintf(fileptr, "surv max iter %d\n", PARAMS.surv_max_iter);
+    fprintf(fileptr, "em convergence %lf\n", PARAMS.em_convergence);
+    fprintf(fileptr, "var convergence %lf\n", PARAMS.var_convergence);
+    fprintf(fileptr, "cg convergence %lf\n", PARAMS.cg_convergence);
+    fprintf(fileptr, "surv convergence %lf\n", PARAMS.surv_convergence);
+    fprintf(fileptr, "penalty convergence %lf\n", PARAMS.surv_penalty);
+    fprintf(fileptr, "lag %d\n", PARAMS.lag);
+    fprintf(fileptr, "run in %d\n", PARAMS.runin);
+    fprintf(fileptr, "shrinkage? %d\n", PARAMS.cov_estimate);
+}
+
+
 void default_params()
 {
     PARAMS.em_max_iter = 1000;
@@ -81,5 +99,6 @@ void default_params()
     PARAMS.surv_convergence = 1e-5;
     PARAMS.surv_penalty = 1e-2;
     PARAMS.cov_estimate = MLE;
+    PARAMS.runin = 1;
     PARAMS.lag = 1;
 }
