@@ -26,6 +26,11 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 	gsl_vector* beta, gsl_vector* xb, gsl_vector* cumulrisk, gsl_vector* cumulgdiag, gsl_vector* cumulhdiag,
 	gsl_vector* cumul2risk, gsl_vector* cumulg2diag, gsl_vector* cumulh2diag);
 void cox_reg_distr_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank);
+int cox_reg_hes(llna_model* model, corpus* c, double* f);
+void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
+	gsl_vector* beta, gsl_vector* cumulxb, gsl_vector* cumulrisk, gsl_matrix* cumulgdiag, gsl_matrix** cumulhdiag,
+	gsl_vector* cumul2risk, gsl_matrix* cumulg2diag, gsl_matrix** cumulh2diag);
+void cox_reg_hes_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank);
 
 
 /*

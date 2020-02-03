@@ -92,7 +92,6 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <LibraryPath>$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -136,6 +135,7 @@
       <EmitOptimizationDiagnosticsToFile>true</EmitOptimizationDiagnosticsToFile>
       <EnableGapAnalysis>Extreme</EnableGapAnalysis>
       <EmitGAPDiagnosticsToFile>true</EmitGAPDiagnosticsToFile>
+      <ConditionalBranch>keep</ConditionalBranch>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -177,7 +177,7 @@
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
-      <EnableEnhancedInstructionSet>AdvancedVectorExtensions</EnableEnhancedInstructionSet>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
       <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -188,12 +188,14 @@
       <EnableMatrixMultiplyLibraryCall>Yes</EnableMatrixMultiplyLibraryCall>
       <Parallelization>true</Parallelization>
       <UseIntelOptimizedHeaders>true</UseIntelOptimizedHeaders>
-      <GenerateAlternateCodePaths>AVX</GenerateAlternateCodePaths>
-      <UseProcessorExtensions>AVX</UseProcessorExtensions>
-      <Mtune>Sandybridge</Mtune>
+      <GenerateAlternateCodePaths>CORE512</GenerateAlternateCodePaths>
+      <UseProcessorExtensions>CORE512</UseProcessorExtensions>
+      <Mtune>skylake</Mtune>
       <OpenMP>GenerateParallelCode</OpenMP>
       <LoopUnrolling>255</LoopUnrolling>
       <OptimizeForWindowsApplication>true</OptimizeForWindowsApplication>
+      <ConditionalBranch>keep</ConditionalBranch>
+      <OffloadArch>OffloadMICAVX512</OffloadArch>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

@@ -292,7 +292,7 @@ llna_model* em_initial_model(int k, corpus* corpus, char* start)
     gsl_vector* events = gsl_vector_calloc(range_t);
     gsl_vector* xb = gsl_vector_calloc(range_t);
     corpus->zbar = gsl_matrix_calloc(corpus->ndocs, k);
-
+    corpus->zbar_scaled = gsl_matrix_calloc(corpus->ndocs, k);
     for (d = (corpus->ndocs) - 1; d >= 0; d--)
     {
         if (corpus->docs[d].t_exit > 0)
@@ -558,7 +558,6 @@ void em(char* dataset, int k, char* start, char* dir)
             if (model->var_convergence > PARAMS.var_convergence)  model->var_convergence /= 10;
             if (model->surv_convergence > PARAMS.surv_convergence)  model->surv_convergence /= 10;
             if (model->cg_convergence > PARAMS.cg_convergence)  model->cg_convergence /= 10;
-            if (PARAMS.surv_penalty < 1e6) PARAMS.surv_penalty *= 10;
         }
 
         printf("***** EM ITERATION %d *****\n", model->iteration);
@@ -575,14 +574,22 @@ void em(char* dataset, int k, char* start, char* dir)
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
        
-       cox_iter = cox_reg_dist(model, corpus, &f);
+        cox_iter = cox_reg_hes(model, corpus, &f);
+     //  cox_iter = cox_reg_dist(model, corpus, &f);
      //   cox_iter = cox_reg(model, corpus, &f);
-        while (cox_iter <= 0)
+     /*   while (cox_iter <= 0)
         {
             PARAMS.surv_penalty /= 10;
            cox_iter = cox_reg_dist(model, corpus, &f);
        //     cox_iter = cox_reg(model, corpus, &f);
-        }
+        }*/
+        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+
+        if (cox_iter > PARAMS.surv_max_iter && PARAMS.surv_penalty>1e-6)
+            PARAMS.surv_penalty /= 10;
+        else if (cox_iter <= 5 && PARAMS.surv_penalty<1e6)
+            PARAMS.surv_penalty *= 10;
+
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);
         newC = cstat(corpus, model);
@@ -604,7 +611,6 @@ void em(char* dataset, int k, char* start, char* dir)
 
 
         time(&t1);
-        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
         fprintf(lhood_fptr, "%d %5.5e %5.5e %5.5f %1.5f %1.5f\n",
             model->iteration, lhood, convergence, avg_niter, converged_pct, newC);
         Change = newC - C;
@@ -679,6 +685,8 @@ void inference(char* dataset, char* model_root, char* out)
     gsl_matrix * corpus_lambda = gsl_matrix_calloc(corpus->ndocs, model->k);
     corpus->zbar = gsl_matrix_calloc(corpus->ndocs, model->k);
     gsl_matrix * phi_sums = gsl_matrix_calloc(corpus->ndocs, model->k);
+    corpus->zbar_scaled = gsl_matrix_calloc(corpus->ndocs, model->k);
+
 
     // approximate inference
    // init_temp_vectors(model->k-1); // !!! hacky

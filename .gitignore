@@ -3,3 +3,9 @@
 ################################################################################
 
 /packages/gsl-msvc-x64.2.4.0.8788/build/native/gsl
+/packages/gsl-msvc-x64.2.4.0.8788/build/native/lib/x64
+/packages
+/x64
+/.vs
+/My Advisor Results - surv-ctm
+*.vtuneproj

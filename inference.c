@@ -271,7 +271,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
     int i, n, K = mod->k;
     double log_sum_n = 0, temp = 0;
     double label = (double) doc->label;
-    double cbhz_prod = 1.0; //vget(mod->cbasehazard, doc->t_exit);
+    double cbhz_prod = 1.0; // vget(mod->cbasehazard, doc->t_exit); Doesn't effect phi convergence on a document level
     for (n = 0; n < doc->nterms; n++)
     {
         gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
@@ -281,42 +281,44 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
         cbhz_prod *= temp;
     }
 
-
+    double dif = 0.0;
     // compute phi proportions in log space
-    for (n = 0; n < doc->nterms; n++)
-    {
-        gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
-        gsl_vector_const_view scaledbeta = gsl_matrix_const_row(var->scaledbetamatrix, n);
-        gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
-        gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
-        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector,&temp);
-        cbhz_prod /= exp(temp); //remove the contribution of word n
-        assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
-
-        gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
-        gsl_blas_dcopy(&nlogomega.vector, &nlogphi.vector);
-        gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
-        gsl_blas_daxpy(label, &scaledbeta.vector, &nlogphi.vector);
-        gsl_blas_daxpy(-cbhz_prod, &cbhz_params.vector, &nlogphi.vector);
-
-        log_sum_n =  vget(&nlogphi.vector, 0);
-        for (i = 1; i < K; i++)
+   
+        for (n = 0; n < doc->nterms; n++)
         {
-            log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
-            assert(!isnan(log_sum_n) && !isinf(log_sum_n));
+            gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
+            gsl_vector_const_view scaledbeta = gsl_matrix_const_row(var->scaledbetamatrix, n);
+            gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
+            gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
+            gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+            cbhz_prod /= exp(temp); //remove the contribution of word n
+            assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
+
+            gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
+            gsl_blas_dcopy(&nlogomega.vector, &nlogphi.vector);
+            gsl_blas_daxpy(1.0, var->lambda, &nlogphi.vector);
+            gsl_blas_daxpy(label, &scaledbeta.vector, &nlogphi.vector);
+            gsl_blas_daxpy(-cbhz_prod, &cbhz_params.vector, &nlogphi.vector);
+
+            log_sum_n = vget(&nlogphi.vector, 0);
+            for (i = 1; i < K; i++)
+            {
+                log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
+                assert(!isnan(log_sum_n) && !isinf(log_sum_n));
+            }
+            gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
+            for (i = 0; i < K; i++)
+            {
+                //vset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
+                vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
+                assert(!isnan(vget(&nlogphi.vector, i)));
+            }
+            gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+            assert(!isnan(temp) && !isinf(temp));
+            cbhz_prod *= temp;
+            assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
         }
-        gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
-        for (i = 0; i < K; i++)
-        {
-            //vset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
-            vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
-            assert(!isnan(vget(&nlogphi.vector, i)));
-        }
-        gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
-        assert(!isnan(temp) && !isinf(temp));
-        cbhz_prod *= temp;
-        assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
-    }
+    
 }
 
 

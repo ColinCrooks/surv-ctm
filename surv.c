@@ -335,11 +335,11 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 					dl -= mget(sum_zbar, r, bn);
 					lk += vget(cumulxb, r);
 
-				/*	lk -= (double)mark* vget(cumulrisk, r);
-					double temp2 = (double)mark * vget(cumulgdiag, r) / vget(cumulrisk, r);
-					dl += temp2;
-					dll += ((double)mark * vget(cumulhdiag, r) / vget(cumulrisk, r)) - (temp2 * temp2);
-				*/
+				//	lk -= (double)mark * vget(cumulrisk, r);
+				//	double temp2 = (double)mark * vget(cumulgdiag, r) / vget(cumulrisk, r);
+				//	dl += temp2;
+				//	dll += ((double)mark * vget(cumulhdiag, r) / vget(cumulrisk, r)) - (temp2 * temp2);
+				//}
 					//Using Efron's weights for tied events produces a stabler convergence of the cox model than the above
 					for (int k = 0; k < (int)mark; k++)
 					{
@@ -365,7 +365,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 			newlk -= (vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty);
 			lastvar = bn;
 		}
-		newlk -= safe_log(sqrt(2 * PI * PARAMS.surv_penalty)) * ((double)nvar); //Constant for a particular lambda so unnecessary for convergence, however, when comparing models it is appropriate.(- 1.0 not needed as nvar already -1)
+		//newlk -= safe_log(sqrt(2 * PI * PARAMS.surv_penalty)) * ((double)nvar); //Constant for a particular lambda so unnecessary for convergence, however, when comparing models it is appropriate.(- 1.0 not needed as nvar already -1)
 		if (iter > 0 && fabs(1.0 - (newlk / loglik)) <= model->surv_convergence) 
 			break;
 		loglik = newlk;
@@ -388,6 +388,527 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	return(iter);
 }
 
+int cholesky2(gsl_matrix* matrix, int n, double toler)
+{
+	double temp;
+	int  i, j, k;
+	double eps, pivot;
+	int rank;
+	int nonneg;
 
+	nonneg = 1;
+	eps = 0;
+	for (i = 0; i < n; i++) {
+		if (mget(matrix,i,i) > eps)  eps = mget(matrix, i, i);
+		for (j = (i + 1); j < n; j++)  mset(matrix,j,i, mget(matrix,i,j));
+	}
+	if (eps == 0) eps = toler; /* no positive diagonals! */
+	else eps *= toler;
+
+	rank = 0;
+	for (i = 0; i < n; i++) {
+		pivot = mget(matrix,i,i);
+		if (isfinite(pivot) == 0 || pivot < eps) {
+			mset(matrix,i,i,0);
+			if (pivot < -8 * eps) nonneg = -1;
+		}
+		else {
+			rank++;
+			for (j = (i + 1); j < n; j++) {
+				temp = mget(matrix,j,i) / pivot;
+				mset(matrix,j,i,temp);
+				minc(matrix,j,j, (-temp) * temp * pivot);
+				for (k = (j + 1); k < n; k++) minc(matrix,k,j, (-temp) * mget(matrix,k,i));
+			}
+		}
+	}
+	return(rank * nonneg);
+}
+
+void chsolve2(gsl_matrix* matrix, int n, gsl_vector* y)
+{
+	int i, j;
+	double temp;
+
+	/*
+	** solve Fb =y
+	*/
+	for (i = 0; i < n; i++) {
+		temp = vget(y,i);
+		for (j = 0; j < i; j++)
+			temp -= vget(y,j) * mget(matrix,i,j);
+		vset(y,i,temp);
+	}
+	/*
+	** solve DF'z =b
+	*/
+	for (i = (n - 1); i >= 0; i--) {
+		if (mget(matrix,i,i) == 0)  vset(y,i,0);
+		else {
+			temp = vget(y,i) / mget(matrix,i,i);
+			for (j = i + 1; j < n; j++)
+				temp -= vget(y,j) * mget(matrix,j,i);
+			vset(y,i,temp);
+		}
+	}
+}
+
+
+void chinv2(gsl_matrix* matrix, int n)
+{
+	double temp;
+	int i, j, k;
+
+	/*
+	** invert the cholesky in the lower triangle
+	**   take full advantage of the cholesky's diagonal of 1's
+	*/
+	for (i = 0; i < n; i++) {
+		if (mget(matrix,i,i) > 0) {
+			mset(matrix,i,i, 1.0 / mget(matrix,i,i));   /*this line inverts D */
+			for (j = (i + 1); j < n; j++) {
+				minc(matrix,j,i, -mget(matrix,j,i));
+				for (k = 0; k < i; k++)     /*sweep operator */
+					minc(matrix,j,k, mget(matrix,j,i) * mget(matrix,i,k));
+			}
+		}
+	}
+
+	/*
+	** lower triangle now contains inverse of cholesky
+	** calculate F'DF (inverse of cholesky decomp process) to get inverse
+	**   of original matrix
+	*/
+	for (i = 0; i < n; i++) {
+		if (mget(matrix,i,i) == 0) {  /* singular row */
+			for (j = 0; j < i; j++) mset(matrix,j,i,0);
+			for (j = i; j < n; j++) mset(matrix,i,j,0);
+		}
+		else {
+			for (j = (i + 1); j < n; j++) {
+				temp = mget(matrix,j,i) * mget(matrix,j,j);
+				if (j != i) mset(matrix,i,j,temp);
+				for (k = i; k < j; k++)
+					minc(matrix,i,k, temp * mget(matrix,j,k));
+			}
+		}
+	}
+}
+
+int cox_reg_hes(llna_model* model, corpus* c, double* f)
+{
+	//Mittal, S., Madigan, D., Burd, R. S., & Suchard, M. a. (2013). High-dimensional, massive sample-size Cox proportional hazards regression for survival analysis. Biostatistics (Oxford, England), 1–15. doi:10.1093/biostatistics/kxt043
+	int i, k, person, iter;
+	int halving = 0;
+	int nvar = model->k;
+	int nused = c->ndocs;
+	int ntimes = model->range_t;
+	double loglik = 0.0, newlk = 0.0;
+
+	//Memory for 1st g() and 2nd h() derivative function output. Initialised in loop.
+	gsl_vector* gdiag = gsl_vector_alloc(nvar);
+	gsl_matrix* hdiag = gsl_matrix_alloc(nvar, nvar);
+
+	//Rescale zbar for regression	
+	gsl_vector* mean_z = gsl_vector_calloc(model->k);
+	gsl_vector* scale_z = gsl_vector_calloc(model->k);
+#pragma omp parallel default(none) shared(c, model, nused, nvar, mean_z, scale_z) /* for (i = 0; i < corpus->ndocs; i++) */
+	{
+		int size = omp_get_num_threads(); // get total number of processes
+		int rank = omp_get_thread_num(); // get rank of current
+		gsl_vector* mean_z_private = gsl_vector_calloc(model->k);
+		gsl_vector* scale_z_private = gsl_vector_calloc(model->k);
+		for (unsigned int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
+		{
+			gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+			gsl_blas_daxpy((1.0), &zbar.vector, mean_z_private);
+			for (int i = 0; i < model->k; i++)
+				vset(scale_z_private, i, fabs(vget(mean_z_private, i)));
+		}
+#pragma omp critical
+		{
+			gsl_blas_daxpy(1.0, mean_z_private, mean_z);
+			gsl_blas_daxpy(1.0, scale_z_private, scale_z);
+		}
+		gsl_vector_free(mean_z_private);
+		gsl_vector_free(scale_z_private);
+	}
+
+	gsl_blas_dscal(1.0 / (double)nused, mean_z);
+	gsl_blas_dscal(1.0 / (double)nused, scale_z);
+	for (i = 0; i < model->k; i++)
+	{
+		if (vget(scale_z, i) == 0.0)
+		{
+			vset(scale_z, i, 1.0);
+		}
+	}
+
+#pragma omp parallel default(none) shared(c, model, nused, mean_z, scale_z) /* for (i = 0; i < corpus->ndocs; i++) */
+	{
+		int size = omp_get_num_threads(); // get total number of processes
+		int rank = omp_get_thread_num(); // get rank of current
+		for (unsigned int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
+		{
+			gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+			gsl_vector_view zbar_scaled = gsl_matrix_row(c->zbar_scaled, person);
+			gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
+			gsl_blas_daxpy((-1.0), mean_z, &zbar_scaled.vector);
+			gsl_vector_div(&zbar_scaled.vector, scale_z);  //phi always positive as exponentiated.
+		}
+	}
+
+
+	//Initial sum of zbar from patients with events at each time point (doesn't change with each iteration)
+	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);
+#pragma omp parallel default(none) shared(c, model, sum_zbar, mean_z, ntimes, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
+	{
+		int size = omp_get_num_threads(); // get total number of processes
+		int rank = omp_get_thread_num(); // get rank of current
+		gsl_matrix* sum_zbar_private = gsl_matrix_calloc(ntimes, model->k);
+		cox_reg_hes_init(model, sum_zbar_private, c, size, rank);
+#pragma omp critical
+		{
+			gsl_matrix_add(sum_zbar, sum_zbar_private);
+		}
+		gsl_matrix_free(sum_zbar_private);
+	}
+
+	//Memory to keep track of current beta and last iteration beta for halving process (vector view in case want to omit a baseline variable)
+	gsl_vector* beta = gsl_vector_alloc(nvar);
+	gsl_vector* newbeta = gsl_vector_alloc(nvar);
+	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
+	gsl_blas_dcopy(&topic_beta.vector, newbeta);
+	gsl_blas_dcopy(&topic_beta.vector, beta);
+	for (i = 0; i < nvar; i++)
+	{
+		vset(newbeta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
+		vset(beta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
+	}
+
+	// Memory for cumulative sums to be collected in parrallel (initialised in loop)
+	gsl_vector* cumulxb = gsl_vector_alloc(ntimes);
+	gsl_vector* cumulrisk = gsl_vector_alloc(ntimes);
+	gsl_vector* cumul2risk = gsl_vector_alloc(ntimes);
+	gsl_matrix* cumulgdiag = gsl_matrix_alloc(ntimes, nvar);
+	gsl_matrix* cumulg2diag = gsl_matrix_alloc(ntimes, nvar);
+	gsl_matrix** cumulhdiag = malloc(sizeof(gsl_matrix*) * ntimes);
+	gsl_matrix** cumulh2diag = malloc(sizeof(gsl_matrix*) * ntimes);
+	for (int r = 0; r < ntimes; r++)
+	{
+		cumulhdiag[r] = gsl_matrix_alloc(nvar, nvar);
+		cumulh2diag[r] = gsl_matrix_alloc(nvar, nvar);
+	}
+
+	//Main iteration loop
+	for (iter = 1; iter <= PARAMS.surv_max_iter; iter++)
+	{
+		//Initialise everything for start of iteration
+		newlk = 0.0;
+		gsl_vector_set_zero(cumulxb);
+		gsl_vector_set_zero(cumulrisk);
+		gsl_vector_set_zero(cumul2risk);
+		gsl_matrix_set_zero(cumulgdiag);
+		gsl_matrix_set_zero(cumulg2diag);
+		for (int r = 0; r < ntimes; r++)
+		{
+			gsl_matrix_set_zero(cumulhdiag[r]);
+			gsl_matrix_set_zero(cumulh2diag[r]);
+		}
+
+		//Acuumulation loop across all patients in parallel
+#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, newbeta)  /* for (i = 0; i < corpus->ndocs; i++) */
+		{
+			int size = omp_get_num_threads(); // get total number of processes
+			int rank = omp_get_thread_num(); // get rank of current
+
+			gsl_vector* cumulxb_private = gsl_vector_calloc(ntimes);
+			gsl_vector* cumulrisk_private = gsl_vector_calloc(ntimes);
+			gsl_vector* cumul2risk_private = gsl_vector_calloc(ntimes);
+			gsl_matrix* cumulgdiag_private = gsl_matrix_calloc(ntimes, nvar);
+			gsl_matrix* cumulg2diag_private = gsl_matrix_calloc(ntimes, nvar);
+			gsl_matrix** cumulhdiag_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			gsl_matrix** cumulh2diag_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			for (int r = 0; r < ntimes; r++)
+			{
+				cumulhdiag_private[r] = gsl_matrix_calloc(nvar, nvar);
+				cumulh2diag_private[r] = gsl_matrix_calloc(nvar, nvar);
+			}
+			cox_reg_accumul_hes(model, c, size, rank, newbeta, cumulxb_private, cumulrisk_private, cumulgdiag_private, cumulhdiag_private,
+				cumul2risk_private, cumulg2diag_private, cumulh2diag_private);
+
+#pragma omp critical
+			{
+				gsl_blas_daxpy(1.0, cumulxb_private, cumulxb);
+				gsl_blas_daxpy(1.0, cumulrisk_private, cumulrisk);
+				gsl_blas_daxpy(1.0, cumul2risk_private, cumul2risk);
+				gsl_matrix_memcpy(cumulgdiag, cumulgdiag_private);
+				gsl_matrix_memcpy(cumulg2diag, cumulg2diag_private);
+				for (int r = 0; r < ntimes; r++)
+				{
+					for (int i = 0; i < nvar; i++)
+					{
+						for (int j = 0; j <= i; j++)
+						{
+							cumulhdiag[r]->data[(i * nvar) + j] += cumulhdiag_private[r]->data[(i * nvar) + j];
+							cumulh2diag[r]->data[(i * nvar) + j] += cumulh2diag_private[r]->data[(i * nvar) + j];
+						}
+					}
+					//gsl_matrix_add(cumulh2diag[r], cumulh2diag_private[r]);
+					//gsl_matrix_add(cumulhdiag[r], cumulhdiag_private[r]);
+				}
+			}
+			gsl_vector_free(cumulxb_private);
+			gsl_vector_free(cumulrisk_private);
+			gsl_vector_free(cumul2risk_private);	
+			gsl_matrix_free(cumulgdiag_private);
+			gsl_matrix_free(cumulg2diag_private);
+			for (int r = 0; r < ntimes; r++)
+			{
+				gsl_matrix_free(cumulhdiag_private[r]);
+				gsl_matrix_free(cumulh2diag_private[r]);
+			}
+		}
+
+// Accumulate over event time points to calculate 1st and 2nd derivatives
+		gsl_vector_set_zero(gdiag);
+		gsl_matrix_set_zero(hdiag);
+		
+#pragma omp parallel reduction(+:newlk) default(none) shared(c, newbeta, sum_zbar, cumulxb, cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, ntimes, gdiag, hdiag, nvar)
+		{
+			int size = omp_get_num_threads(); // get total number of processes
+			int rank = omp_get_thread_num(); // get rank of current
+			gsl_vector* gdiag_private = gsl_vector_calloc(nvar);
+			gsl_matrix* hdiag_private = gsl_matrix_calloc(nvar, nvar);
+			gsl_vector* htemp = gsl_vector_calloc(nvar);
+			gsl_vector* atemp = gsl_vector_calloc(nvar);
+
+			for (int r = rank * ntimes / size; r < (rank + 1) * ntimes / size; r++)
+			{
+				double mark = vget(c->mark, r);
+				newlk += vget(cumulxb, r);
+				gsl_vector_view zsum = gsl_matrix_subrow(sum_zbar, r, 0, nvar);
+				gsl_blas_daxpy((1.0), &zsum.vector, gdiag_private);
+
+				gsl_vector_view arow = gsl_matrix_row(cumulgdiag, r);
+				gsl_vector_view arow2 = gsl_matrix_row(cumulg2diag, r);
+				for (int k = 0; k < (int)mark; k++)
+				{
+					double temp = (1.0 / (double)k);
+					double denom = vget(cumulrisk, r) + (vget(cumul2risk, r) / (double)k );
+					newlk -= safe_log(denom);
+					gsl_blas_dcopy(&arow.vector, atemp);
+					gsl_blas_daxpy(temp , &arow2.vector, atemp);
+					double scale = 1.0 / denom;
+					gsl_blas_dscal(scale, atemp);
+					gsl_blas_daxpy(-1.0, atemp, gdiag_private);
+
+					for (int i = 0; i < nvar; i++)
+					{
+						gsl_vector_view cumulhrow2 = gsl_matrix_row(cumulh2diag[r], i);
+						gsl_vector_view cumulhrow = gsl_matrix_row(cumulhdiag[r], i);
+						gsl_vector_view hrow = gsl_matrix_row(hdiag_private, i);
+						gsl_blas_dcopy(&cumulhrow.vector, htemp);
+						gsl_blas_daxpy(temp, &cumulhrow2.vector, htemp);
+						gsl_blas_dscal(scale, htemp);
+						double ai = vget(atemp, i);
+						gsl_blas_daxpy((-ai), atemp, htemp);
+						gsl_blas_daxpy(1.0, htemp, &hrow.vector);
+					}
+				}
+			
+			}
+#pragma omp critical
+			{
+				gsl_blas_daxpy(1.0, gdiag_private, gdiag);
+				for (int i = 0; i < nvar; i++)
+					for (int j = 0; j <= i; j++)
+						hdiag->data[(i * nvar) + j] += hdiag_private->data[(i * nvar) + j];
+						//gsl_matrix_add(hdiag, hdiag_private);
+			}
+			gsl_vector_free(gdiag_private);
+			gsl_matrix_free(hdiag_private);
+			gsl_vector_free(htemp);
+			gsl_vector_free(atemp);
+		}
+
+
+		double flag;
+		flag = cholesky2(hdiag, nvar, PARAMS.surv_convergence);
+
+		double notfinite = 0;
+		for (i = 0; i < nvar; i++) {
+			if (isfinite(vget(gdiag, i)) == 0) notfinite = 2;
+			for (int j = 0; j < nvar; j++) {
+				if (isfinite(mget(hdiag, i, j)) == 0) notfinite = 3;
+			}
+		}
+		if (isfinite(newlk) == 0) notfinite = 4;
+
+		if (notfinite == 0 && (fabs(1 - (loglik / newlk)) <= PARAMS.surv_convergence)) {
+			loglik = newlk;
+			//chinv2(hdiag, nvar);   //Will be useful if do more with covariance matrix in future. Would also need to be re scaled
+			if (halving) flag = -2;
+			break;
+		}
+
+		if ((notfinite > 0 || newlk < loglik) && iter > 1) {
+			halving++;
+			gsl_blas_daxpy((double)halving, beta, newbeta);
+			gsl_blas_dscal(1.0 / ((double)halving + 1.0), newbeta);
+			printf("Backing up\t likelihood %f\n", newlk);
+		}
+		else {
+			halving = 0;
+			loglik = newlk;
+			chsolve2(hdiag, nvar, gdiag);
+			//	vprint(gdiag);
+			gsl_blas_dcopy(newbeta, beta); //Keep copy of old beta incase need to do halving
+			gsl_blas_daxpy(1.0, gdiag, newbeta);
+			printf("Cox iter %d \t  likelihood %f\n", iter, newlk);
+		}
+
+		//printf("Sequential dl %f\t", gdiag);
+		//printf("dll %f\n", hdiag);
+
+	}
+
+
+
+	*f = loglik;
+	for (i = 0; i < nvar; i++)
+		vset(newbeta, i, vget(newbeta, i) * vget(scale_z, i));
+	gsl_blas_dcopy(newbeta, &topic_beta.vector);
+
+	gsl_vector_free(beta);
+	gsl_vector_free(scale_z);
+	gsl_vector_free(mean_z);
+
+	gsl_vector_free(newbeta);
+	gsl_matrix_free(sum_zbar);	
+	gsl_vector_free(cumulxb);
+	gsl_vector_free(cumulrisk);
+	gsl_vector_free(cumul2risk);	
+	gsl_matrix_free(cumulgdiag);
+	gsl_matrix_free(cumulg2diag);	
+	for (i = 0; i < ntimes; i++)
+	{
+		gsl_matrix_free(cumulhdiag[i]);
+		gsl_matrix_free(cumulh2diag[i]);
+	}
+	gsl_vector_free(gdiag);
+	gsl_matrix_free(hdiag);
+
+	return iter;
+}
+
+
+
+void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank, 
+	gsl_vector* beta, gsl_vector* cumulxb, gsl_vector* cumulrisk, gsl_matrix* cumulgdiag, gsl_matrix** cumulhdiag,
+	gsl_vector* cumul2risk, gsl_matrix* cumulg2diag, gsl_matrix** cumulh2diag)
+{
+	
+	int nused = c->ndocs;
+	int nvar = model->k ;
+	double risk;
+	gsl_vector* atemp = gsl_vector_calloc(nvar);
+	gsl_matrix* ctemp = gsl_matrix_calloc(nvar, nvar);
+	for (int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
+	{
+		//These were already centred on t_min in corpus.c so can directly map into vectors
+		unsigned int t_enter = (unsigned int)c->docs[person].t_enter;
+		unsigned int t_exit = (unsigned int)c->docs[person].t_exit;
+		
+		//Patient level linear predictor and risk
+		gsl_vector_view z = gsl_matrix_subrow(c->zbar_scaled, person, 0, nvar);
+		double xb;
+		gsl_blas_ddot(beta, &z.vector, &xb);
+		xb = xb > 22 ? 22 : xb;
+		xb = xb < -200 ? -200 : xb;
+		risk = exp(xb);
+
+		// X*exp(xb)
+		gsl_blas_dcopy(&z.vector, atemp);
+		gsl_blas_dscal(risk, atemp);
+		gsl_blas_dsyr(CblasUpper, risk, &z.vector, ctemp);
+
+		if (c->docs[person].label == 0)
+		{
+			//cumumlative sums for all patients
+			gsl_vector_view timeupdate1 = gsl_vector_subvector(cumulrisk, t_enter, ((size_t)t_exit - (size_t)t_enter) + 1);
+			gsl_vector_add_constant(&timeupdate1.vector, risk);
+
+			for (int r = t_enter; r <= t_exit; r++)
+			{
+				gsl_vector_view arow = gsl_matrix_row(cumulgdiag, r);
+				gsl_blas_daxpy(1.0, atemp, &arow.vector);
+				for (int i = 0; i < nvar; i++)
+				{
+					for (int j = 0; j <= i; j++)
+					{
+						cumulhdiag[r]->data[(i * nvar) + j] += ctemp->data[(i * nvar) + j];
+					}
+				}
+
+				/*for (int i = 0; i < nvar; i++)
+				{
+					gsl_vector_view cumulhrow = gsl_matrix_row(cumulhdiag[r], i);
+					gsl_blas_daxpy(vget(&z.vector, i), atemp, &cumulhrow.vector);
+				}*/
+			}
+		}
+		else
+		{
+			//cumumlative sums for patients with events
+		
+			vinc(cumulxb, t_exit, xb);
+			vinc(cumul2risk, t_exit, risk);
+			gsl_vector_view arow2 = gsl_matrix_row(cumulg2diag, t_exit);
+			gsl_blas_daxpy((1.0), atemp, &arow2.vector);
+		//	gsl_matrix_add(cumulh2diag[t_exit], ctemp);
+			for (int i = 0; i < nvar; i++)
+			{
+				for (int j = 0; j <= i; j++)
+				{
+					cumulh2diag[t_exit]->data[(i * nvar) + j] += ctemp->data[(i * nvar) + j];
+				}
+			}
+
+			/*for (int i = 0; i < nvar; i++)
+			{
+				gsl_vector_view cumulhrow2 = gsl_matrix_row(cumulh2diag[t_exit], i);
+				gsl_blas_daxpy(vget(&z.vector, i), atemp, &cumulhrow2.vector);
+			}*/
+		}
+	}
+	gsl_vector_free(atemp);
+	gsl_matrix_free(ctemp);
+}
+
+
+void cox_reg_hes_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank)
+{
+	unsigned int nused = c->ndocs;
+	for (unsigned int person = rank * nused / size; person < (rank + 1) * nused / size; person++)
+	{
+		unsigned int t_exit = c->docs[person].t_exit;
+		int label = c->docs[person].label;
+		gsl_vector_view personrisk = gsl_matrix_row(c->zbar_scaled, person);
+		double zb = 0.0;
+		//	printf("Person %d label %d mark %f exit %d\n", person, label, vget(c->cmark,person), t_exit);
+		if (label > 0)
+		{
+			//	gsl_vector_view personzbar = gsl_matrix_subrow(c->zbar, person, 0, nvar);
+			gsl_vector_view timeszbar = gsl_matrix_row(sum_zbar_events_cumulative, t_exit);
+			gsl_blas_daxpy(1.0, &personrisk.vector, &timeszbar.vector);
+			//	printf("par ");
+			//	vprint(&timeszbar.vector);
+			//	printf("\n");
+		}
+	}
+
+	return;
+}
 
 
