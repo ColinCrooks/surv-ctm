@@ -9,3 +9,5 @@
 /.vs
 /My Advisor Results - surv-ctm
 *.vtuneproj
+/VTune Profiler Results/surv-ctm
+*.dll

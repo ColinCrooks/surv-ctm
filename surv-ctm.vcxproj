@@ -184,7 +184,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <OpenMPSupport>true</OpenMPSupport>
       <FloatingPointModel>Fast</FloatingPointModel>
-      <AdditionalOptions> /DMKL_ILP64 -I"%MKLROOT%"\include</AdditionalOptions>
+      <AdditionalOptions> /DMKL_ILP64 -I"%MKLROOT%"\include /Qopt-zmm-usage:high</AdditionalOptions>
       <EnableMatrixMultiplyLibraryCall>Yes</EnableMatrixMultiplyLibraryCall>
       <Parallelization>true</Parallelization>
       <UseIntelOptimizedHeaders>true</UseIntelOptimizedHeaders>

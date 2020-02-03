@@ -644,14 +644,17 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 				gsl_blas_daxpy(1.0, cumul2risk_private, cumul2risk);
 				gsl_matrix_memcpy(cumulgdiag, cumulgdiag_private);
 				gsl_matrix_memcpy(cumulg2diag, cumulg2diag_private);
+#pragma omp simd
 				for (int r = 0; r < ntimes; r++)
 				{
-					for (int i = 0; i < nvar; i++)
+#pragma omp simd
+					for (int rowN = 0; rowN < nvar; rowN++)
 					{
-						for (int j = 0; j <= i; j++)
+#pragma omp simd
+						for (int colN = rowN; colN < nvar; colN++)
 						{
-							cumulhdiag[r]->data[(i * nvar) + j] += cumulhdiag_private[r]->data[(i * nvar) + j];
-							cumulh2diag[r]->data[(i * nvar) + j] += cumulh2diag_private[r]->data[(i * nvar) + j];
+							cumulhdiag[r]->data[(rowN * nvar) + colN] += cumulhdiag_private[r]->data[(rowN * nvar) + colN];
+							cumulh2diag[r]->data[(rowN * nvar) + colN] += cumulh2diag_private[r]->data[(rowN * nvar) + colN];
 						}
 					}
 					//gsl_matrix_add(cumulh2diag[r], cumulh2diag_private[r]);
@@ -686,20 +689,23 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			for (int r = rank * ntimes / size; r < (rank + 1) * ntimes / size; r++)
 			{
 				double mark = vget(c->mark, r);
+				double temp = (1.0 / mark);
 				newlk += vget(cumulxb, r);
 				gsl_vector_view zsum = gsl_matrix_subrow(sum_zbar, r, 0, nvar);
 				gsl_blas_daxpy((1.0), &zsum.vector, gdiag_private);
 
 				gsl_vector_view arow = gsl_matrix_row(cumulgdiag, r);
 				gsl_vector_view arow2 = gsl_matrix_row(cumulg2diag, r);
+				gsl_blas_dcopy(&arow.vector, atemp);
+
 				for (int k = 0; k < (int)mark; k++)
 				{
-					double temp = (1.0 / (double)k);
-					double denom = vget(cumulrisk, r) + (vget(cumul2risk, r) / (double)k );
-					newlk -= safe_log(denom);
-					gsl_blas_dcopy(&arow.vector, atemp);
-					gsl_blas_daxpy(temp , &arow2.vector, atemp);
+					vinc(cumulrisk, r, vget(cumul2risk, r) * temp);
+					double denom = vget(cumulrisk, r);
+					newlk -= log(denom);
+					
 					double scale = 1.0 / denom;
+					gsl_blas_daxpy(temp, &arow2.vector, atemp);
 					gsl_blas_dscal(scale, atemp);
 					gsl_blas_daxpy(-1.0, atemp, gdiag_private);
 
@@ -708,11 +714,11 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 						gsl_vector_view cumulhrow2 = gsl_matrix_row(cumulh2diag[r], i);
 						gsl_vector_view cumulhrow = gsl_matrix_row(cumulhdiag[r], i);
 						gsl_vector_view hrow = gsl_matrix_row(hdiag_private, i);
+						gsl_blas_daxpy(temp, &cumulhrow2.vector, &cumulhrow.vector);
 						gsl_blas_dcopy(&cumulhrow.vector, htemp);
-						gsl_blas_daxpy(temp, &cumulhrow2.vector, htemp);
-						gsl_blas_dscal(scale, htemp);
 						double ai = vget(atemp, i);
 						gsl_blas_daxpy((-ai), atemp, htemp);
+						gsl_blas_dscal(scale, htemp);
 						gsl_blas_daxpy(1.0, htemp, &hrow.vector);
 					}
 				}
@@ -721,9 +727,9 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 #pragma omp critical
 			{
 				gsl_blas_daxpy(1.0, gdiag_private, gdiag);
-				for (int i = 0; i < nvar; i++)
-					for (int j = 0; j <= i; j++)
-						hdiag->data[(i * nvar) + j] += hdiag_private->data[(i * nvar) + j];
+				for (int rowN = 0; rowN < nvar; rowN++)
+					for (int colN = rowN; colN < nvar; colN++)
+						hdiag->data[(rowN * nvar) + colN] += hdiag_private->data[(rowN * nvar) + colN];
 						//gsl_matrix_add(hdiag, hdiag_private);
 			}
 			gsl_vector_free(gdiag_private);
@@ -843,11 +849,13 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 			{
 				gsl_vector_view arow = gsl_matrix_row(cumulgdiag, r);
 				gsl_blas_daxpy(1.0, atemp, &arow.vector);
-				for (int i = 0; i < nvar; i++)
+#pragma omp simd
+				for (int rowN = 0; rowN < nvar; rowN++)
 				{
-					for (int j = 0; j <= i; j++)
+#pragma omp simd
+					for (int colN = rowN; colN < nvar; colN++)
 					{
-						cumulhdiag[r]->data[(i * nvar) + j] += ctemp->data[(i * nvar) + j];
+						cumulhdiag[r]->data[(rowN * nvar) + colN] += ctemp->data[(rowN * nvar) + colN];
 					}
 				}
 
@@ -867,11 +875,13 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 			gsl_vector_view arow2 = gsl_matrix_row(cumulg2diag, t_exit);
 			gsl_blas_daxpy((1.0), atemp, &arow2.vector);
 		//	gsl_matrix_add(cumulh2diag[t_exit], ctemp);
-			for (int i = 0; i < nvar; i++)
+#pragma omp simd
+			for (int rowN = 0; rowN < nvar; rowN++)
 			{
-				for (int j = 0; j <= i; j++)
+#pragma omp simd
+				for (int colN = rowN; colN < nvar; colN++)
 				{
-					cumulh2diag[t_exit]->data[(i * nvar) + j] += ctemp->data[(i * nvar) + j];
+					cumulh2diag[t_exit]->data[(rowN * nvar) + colN] += ctemp->data[(rowN * nvar) + colN];
 				}
 			}
 

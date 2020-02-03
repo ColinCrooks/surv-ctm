@@ -2,10 +2,10 @@ em max iter 20
 var max iter 1000
 cg max iter 1000
 surv max iter 100
-em convergence 1e-5
+em convergence 1e-4
 var convergence 1e-6
 cg convergence 1e-6
-surv convergence 1e-8
+surv convergence 1e-6
 surv penalty 1e6
 lag 10
 run in 5
