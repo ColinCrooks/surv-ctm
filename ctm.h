@@ -42,6 +42,7 @@ typedef struct llna_model
     double var_convergence;
     double cg_convergence;
     double surv_convergence;
+    double intercept;
     gsl_matrix * log_omega;
     gsl_vector * mu;
     gsl_matrix * inv_cov;

@@ -537,14 +537,10 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	gsl_blas_dscal(1.0 / (double)nused, mean_z);
 	gsl_blas_dscal(1.0 / (double)nused, scale_z);
 	for (i = 0; i < model->k; i++)
-	{
 		if (vget(scale_z, i) == 0.0)
-		{
 			vset(scale_z, i, 1.0);
-		}
-	}
 
-#pragma omp parallel default(none) shared(c, model, nused, mean_z, scale_z) /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel default(none) shared(c, model, nused, mean_z, scale_z, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
 	{
 		int size = omp_get_num_threads(); // get total number of processes
 		int rank = omp_get_thread_num(); // get rank of current
@@ -555,6 +551,7 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
 			gsl_blas_daxpy((-1.0), mean_z, &zbar_scaled.vector);
 			gsl_vector_div(&zbar_scaled.vector, scale_z);  //phi always positive as exponentiated.
+			vset(&zbar_scaled.vector, nvar - 1, 1.0);
 		}
 	}
 
@@ -585,7 +582,7 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 		vset(newbeta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
 		vset(beta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
 	}
-
+	
 	// Memory for cumulative sums to be collected in parrallel (initialised in loop)
 	gsl_vector* cumulxb = gsl_vector_alloc(ntimes);
 	gsl_vector* cumulrisk = gsl_vector_alloc(ntimes);
@@ -738,6 +735,11 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			gsl_vector_free(atemp);
 		}
 
+	//	gsl_blas_daxpy((-1.0) / PARAMS.surv_penalty, newbeta, gdiag);
+	//	gsl_matrix_add_constant(hdiag, 1.0 / PARAMS.surv_penalty);
+	//	double b2 = 0;
+	//	gsl_blas_ddot(newbeta, newbeta, &b2);
+	//	newlk += b2 / PARAMS.surv_penalty;
 
 		double flag;
 		flag = cholesky2(hdiag, nvar, PARAMS.surv_convergence);
@@ -762,7 +764,7 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			halving++;
 			gsl_blas_daxpy((double)halving, beta, newbeta);
 			gsl_blas_dscal(1.0 / ((double)halving + 1.0), newbeta);
-			printf("Backing up\t likelihood %f\n", newlk);
+		//	printf("Backing up\t likelihood %f\n", newlk);
 		}
 		else {
 			halving = 0;
@@ -771,20 +773,16 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			//	vprint(gdiag);
 			gsl_blas_dcopy(newbeta, beta); //Keep copy of old beta incase need to do halving
 			gsl_blas_daxpy(1.0, gdiag, newbeta);
-			printf("Cox iter %d \t  likelihood %f\n", iter, newlk);
+	//		printf("Cox iter %d \t  likelihood %f\n", iter, newlk);
 		}
-
-		//printf("Sequential dl %f\t", gdiag);
-		//printf("dll %f\n", hdiag);
-
 	}
-
-
 
 	*f = loglik;
 	for (i = 0; i < nvar; i++)
 		vset(newbeta, i, vget(newbeta, i) * vget(scale_z, i));
 	gsl_blas_dcopy(newbeta, &topic_beta.vector);
+	model->intercept = vget(newbeta, nvar - 1);
+	vset(&topic_beta.vector, nvar - 1, 0.0);
 
 	gsl_vector_free(beta);
 	gsl_vector_free(scale_z);
@@ -844,7 +842,6 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 			//cumumlative sums for all patients
 			gsl_vector_view timeupdate1 = gsl_vector_subvector(cumulrisk, t_enter, ((size_t)t_exit - (size_t)t_enter) + 1);
 			gsl_vector_add_constant(&timeupdate1.vector, risk);
-
 			for (int r = t_enter; r <= t_exit; r++)
 			{
 				gsl_vector_view arow = gsl_matrix_row(cumulgdiag, r);
@@ -854,9 +851,7 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 				{
 #pragma omp simd
 					for (int colN = rowN; colN < nvar; colN++)
-					{
 						cumulhdiag[r]->data[(rowN * nvar) + colN] += ctemp->data[(rowN * nvar) + colN];
-					}
 				}
 
 				/*for (int i = 0; i < nvar; i++)
@@ -880,16 +875,8 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 			{
 #pragma omp simd
 				for (int colN = rowN; colN < nvar; colN++)
-				{
 					cumulh2diag[t_exit]->data[(rowN * nvar) + colN] += ctemp->data[(rowN * nvar) + colN];
-				}
 			}
-
-			/*for (int i = 0; i < nvar; i++)
-			{
-				gsl_vector_view cumulhrow2 = gsl_matrix_row(cumulh2diag[t_exit], i);
-				gsl_blas_daxpy(vget(&z.vector, i), atemp, &cumulhrow2.vector);
-			}*/
 		}
 	}
 	gsl_vector_free(atemp);

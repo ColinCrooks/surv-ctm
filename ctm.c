@@ -47,11 +47,12 @@ llna_model* new_llna_model(int ntopics, int nterms, int range_t)
     if (model != NULL)
     {
         model->k = ntopics;
-        model->em_convergence = 1e-3;
-        model->var_convergence = 1e-80;
-        model->cg_convergence = 1e-8;
-        model->surv_convergence = 1e-4;
+        model->em_convergence = 1e-1;
+        model->var_convergence = 1e-3;
+        model->cg_convergence = 1e-3;
+        model->surv_convergence = 1e-3;
         model->iteration = 0;
+        model->intercept = 0;
         model->range_t = range_t;
         model->mu = gsl_vector_calloc((size_t)ntopics - 1);
         model->cov = gsl_matrix_calloc((size_t)ntopics - 1, (size_t)ntopics -  1);

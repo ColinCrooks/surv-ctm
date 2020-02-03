@@ -583,12 +583,12 @@ void em(char* dataset, int k, char* start, char* dir)
            cox_iter = cox_reg_dist(model, corpus, &f);
        //     cox_iter = cox_reg(model, corpus, &f);
         }*/
-        printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+        printf("Cox liklihood %5.5e,  in %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
 
-        if (cox_iter > PARAMS.surv_max_iter && PARAMS.surv_penalty>1e-6)
+   /*     if (cox_iter > PARAMS.surv_max_iter && PARAMS.surv_penalty>1e-6)
             PARAMS.surv_penalty /= 10;
         else if (cox_iter <= 5 && PARAMS.surv_penalty<1e6)
-            PARAMS.surv_penalty *= 10;
+            PARAMS.surv_penalty *= 10;*/
 
         cumulative_basehazard(corpus, model);
         vprint(model->topic_beta);
@@ -597,7 +597,7 @@ void em(char* dataset, int k, char* start, char* dir)
         if (convergence < 0 && PARAMS.runin!=model->iteration )
         {
             reset_var = 0; //retry using global lambda and mu for starting point for variational inference parameters if didn't converge from random start
-            if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocations
+        //    if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocations
             if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10; // provide longer for convergence
             else model->var_convergence /= 10;  
         }

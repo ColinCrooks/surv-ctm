@@ -11,3 +11,4 @@
 *.vtuneproj
 /VTune Profiler Results/surv-ctm
 *.dll
+/My Inspector Results - surv-ctm
