@@ -72,7 +72,7 @@ extern llna_params PARAMS;
  *
  */
 
-void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
+void expectation(corpus* corpus, llna_model* model, llna_ss* ss, 
                  double* avg_niter, double* total_lhood,
                  gsl_matrix* corpus_lambda, gsl_matrix* corpus_nu,
                  gsl_matrix* corpus_phi_sum,
@@ -81,27 +81,32 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
     double total= 0.0; 
     *avg_niter = 0.0;
     *converged_pct = 0;
-
+   // int threadn = omp_get_num_procs();
+    //llna_var_param** var;
     double avniter = 0.0;
     double convergedpct = 0;
     gsl_matrix_set_zero(corpus->zbar);
-    total = 0;
-#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
+
+
+
+#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss,  corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
         int i, j;
         int size = omp_get_num_threads(); // get total number of processes
         int rank = omp_get_thread_num(); // get rank of current
         double  lhood;
+        // keep of track of corpus level values to reset var if needed
         gsl_vector lambda, nu;
-        gsl_vector* phi_sum;
+ //       gsl_vector* phi_sum;
         doc doc;
         llna_var_param* var;
-        phi_sum = gsl_vector_alloc(model->k);
+ //       phi_sum = gsl_vector_alloc(model->k);
         for (i = (rank * corpus->ndocs / size); i < (rank + 1) * corpus->ndocs / size; i++)
         {
            // printf("doc %5d   ", i);
             doc = corpus->docs[i];
-            var = new_llna_var_param(doc.nterms, model->k);
+            var  = new_llna_var_param(doc.nterms, model->k);
+
           /*  if (var == NULL)
                 return;*/
             if (reset_var)
@@ -123,9 +128,18 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             convergedpct += var->converged;
 
             // Allocated topics for survival supervision
+            gsl_vector_view zbarow = gsl_matrix_row(corpus->zbar, i);
+
             for (int n = 0; n < doc.nterms; n++)
-                for (j = 0; j < model->k; j++)
-                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double) doc.count[n] / (double) doc.total); 
+            {
+                double scale = (double)doc.count[n] / (double)doc.total;
+                gsl_vector_view phirow = gsl_matrix_row(var->phi, n);
+                gsl_blas_daxpy(scale, &phirow.vector, &zbarow.vector);
+             //   for (j = 0; j < model->k; j++)
+            //    {
+                    //minc(corpus->zbar, i, j, mget(var[i]->phi, n, j) * (double)doc.count[n] / (double)doc.total);
+             //   }
+            }
                 //mset(corpus->zbar, i, j, vget(var->lambda, j));
 //            
 
@@ -133,13 +147,14 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             //printf("zbar\t");
             //gsl_vector_view zbar = gsl_matrix_row(corpus->zbar, i);
             //vprint(&zbar.vector);
+
             gsl_matrix_set_row(corpus_lambda, i, var->lambda);
             gsl_matrix_set_row(corpus_nu, i, var->nu);
-            col_sum(var->phi, phi_sum);
-            gsl_matrix_set_row(corpus_phi_sum, i, phi_sum);
+            gsl_matrix_set_row(corpus_phi_sum, i, var->sum_phi);
             free_llna_var_param(var);
         }
-        gsl_vector_free(phi_sum);
+
+    //    gsl_vector_free(phi_sum);
     }
 
     *avg_niter = avniter / corpus->ndocs;
@@ -536,9 +551,21 @@ void em(char* dataset, int k, char* start, char* dir)
 	printf("model initialised\n");
     ss = new_llna_ss(model);
 	printf("New ss\t");
+
+    //Working memory allocation done once at start - speed over memory efficiency
     corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
+    int threadn = omp_get_num_procs();
+
+
+    //cox_reg_hes_intitialise(model->k - 1, model->range_t, model, sum_zbar, gdiag, hdiag, mean_z,
+    //    scale_z, beta, newbeta, cumulxb, /*cumul2risk, cumulg2diag,
+    //    cumulh2diag,*/ cumulrisk_start, cumulgdiag_start, cumulhdiag_start, cumulrisk_end,
+    //    cumulgdiag_end, cumulhdiag_end, running_gdiag, running_hdiag, htemp, atemp,
+    //    cumulxb_private,/* cumul2risk_private, cumulh2diag_private, cumulg2diag_private,*/ cumulrisk_start_private,
+    //    cumulgdiag_start_private, cumulhdiag_start_private, cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private);
+
 	printf("gsl allocated\t");
     time(&t1);
     //init_temp_vectors((model->k)-1); // !!! hacky
@@ -550,6 +577,8 @@ void em(char* dataset, int k, char* start, char* dir)
     double Change = 0.0;
     int reset_var = 1;
     int cox_iter = 0;
+
+
     do
     {
         if (convergence <= model->em_convergence && model->iteration > 0)
@@ -563,9 +592,11 @@ void em(char* dataset, int k, char* start, char* dir)
         printf("***** EM ITERATION %d *****\n", model->iteration);
         printf("***** Target convergence = %f\n", model->em_convergence);
         time(&t2);
-        expectation(corpus, model, ss, &avg_niter, &lhood,
+
+        expectation(corpus, model, ss,  &avg_niter, &lhood,
                     corpus_lambda, corpus_nu, corpus_phi_sum,
                     reset_var, &converged_pct);
+
 
         printf("Expectation likelihood %5.5e \t ", lhood);
         printf("%5.0f percent documents converged\n", converged_pct*100);
@@ -573,8 +604,10 @@ void em(char* dataset, int k, char* start, char* dir)
         //int base_index = 0;
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
-       
+
+
         cox_iter = cox_reg_hes(model, corpus, &f);
+
      //  cox_iter = cox_reg_dist(model, corpus, &f);
      //   cox_iter = cox_reg(model, corpus, &f);
      /*   while (cox_iter <= 0)
@@ -603,6 +636,7 @@ void em(char* dataset, int k, char* start, char* dir)
         }
         else
         {
+            printf("Maximisation....\n");
             reset_var = 1;
             maximization(model, ss);
             lhood_old = lhood;
@@ -637,6 +671,8 @@ void em(char* dataset, int k, char* start, char* dir)
     gsl_matrix_free(corpus_lambda);
     gsl_matrix_free(corpus_nu);
     gsl_matrix_free(corpus_phi_sum);
+ 
+    return;
 }
 
 

@@ -47,10 +47,10 @@ llna_model* new_llna_model(int ntopics, int nterms, int range_t)
     if (model != NULL)
     {
         model->k = ntopics;
-        model->em_convergence = 1e-1;
-        model->var_convergence = 1e-3;
-        model->cg_convergence = 1e-3;
-        model->surv_convergence = 1e-3;
+        model->em_convergence = 1e-2;
+        model->var_convergence = 1e-4;
+        model->cg_convergence = 1e-4;
+        model->surv_convergence = 1e-4;
         model->iteration = 0;
         model->intercept = 0;
         model->range_t = range_t;

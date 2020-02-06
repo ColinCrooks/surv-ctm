@@ -37,6 +37,7 @@ typedef struct llna_var_param {
     double zeta;
     gsl_matrix * phi;
     gsl_matrix * log_phi;
+    gsl_vector* sum_phi;
     int niter;
     int ndocs;
     short converged;
