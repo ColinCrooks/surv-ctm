@@ -8,5 +8,5 @@ cg convergence 1e-8
 surv convergence 1e-8
 surv penalty 1e-4
 lag 10
-run in 5
+run in 0
 covariance estimate mle

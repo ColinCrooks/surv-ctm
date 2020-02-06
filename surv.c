@@ -529,10 +529,11 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	int ntimes = model->range_t;
 	double loglik = 0.0, newlk = 0.0;
 	gsl_vector* mean_z, * scale_z, * beta, * newbeta, * cumulxb, /* cumul2risk,*/* gdiag, * cumulrisk_start, * cumulrisk_end, * running_gdiag, * htemp, * atemp;
-	gsl_vector** cumulxb_private, /** cumul2risk_private,*/** cumulrisk_start_private, ** cumulrisk_end_private;
+	//gsl_vector** cumulxb_private, /** cumul2risk_private,*/** cumulrisk_start_private, ** cumulrisk_end_private;
 	gsl_matrix* sum_zbar, * hdiag, /* cumulg2diag,*/* cumulgdiag_start, * cumulgdiag_end, * running_hdiag;
-	gsl_matrix** /*cumulh2diag, ***/ cumulhdiag_start, ** cumulhdiag_end, /** cumulg2diag_private,*/** cumulgdiag_start_private, ** cumulgdiag_end_private;
-	gsl_matrix*** cumulhdiag_start_private, *** cumulhdiag_end_private/*, *** cumulh2diag_private*/;
+	gsl_matrix** /*cumulh2diag, ***/ cumulhdiag_start, ** cumulhdiag_end; 
+	/*, * cumulg2diag_private,** cumulgdiag_start_private, ** cumulgdiag_end_private;*/
+	//gsl_matrix*** cumulhdiag_start_private, *** cumulhdiag_end_private/*, *** cumulh2diag_private*/;
 
 	sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 
@@ -669,22 +670,13 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
 	gsl_blas_dcopy(&topic_beta.vector, newbeta);
 	gsl_blas_dcopy(&topic_beta.vector, beta);
-//	for (i = 0; i < nvar; i++)
-//	{
-	//	vset(newbeta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
-	//	vset(beta, i, vget(&topic_beta.vector, i) / vget(scale_z, i));
-	//}
 
-	
 	//Main iteration loop
 	for (iter = 1; iter <= PARAMS.surv_max_iter; iter++)
 	{
 		//Initialise everything for start of iteration
 		newlk = 0.0;
 		gsl_vector_set_zero(cumulxb);
-//		gsl_vector_set_zero(cumul2risk);
-//		gsl_matrix_set_zero(cumulg2diag);
-
 		gsl_vector_set_zero(cumulrisk_start);
 		gsl_matrix_set_zero(cumulgdiag_start);
 		gsl_vector_set_zero(cumulrisk_end);
@@ -694,39 +686,21 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 		{
 			gsl_matrix_set_zero(cumulhdiag_start[r]);
 			gsl_matrix_set_zero(cumulhdiag_end[r]);
-//			gsl_matrix_set_zero(cumulh2diag[r]);
 		}
 
 		//Acuumulation loop across all patients in parallel
-#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk_start, cumulgdiag_start, cumulhdiag_start,  cumulrisk_end, cumulgdiag_end, cumulhdiag_end,   cumulxb_private,  cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,  cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private, newbeta) // cumul2risk, cumulg2diag, cumulh2diag, cumul2risk_private, cumulg2diag_private, cumulh2diag_private  /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk_start, cumulgdiag_start, cumulhdiag_start,  cumulrisk_end, cumulgdiag_end, cumulhdiag_end,   newbeta) //  cumulxb_private,  cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,  cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private, cumul2risk, cumulg2diag, cumulh2diag, cumul2risk_private, cumulg2diag_private, cumulh2diag_private  /* for (i = 0; i < corpus->ndocs; i++) */
 		{
 			int size = omp_get_num_threads(); // get total number of processes
 			int rank = omp_get_thread_num(); // get rank of current
 
-//			gsl_vector_set_zero(cumulxb_private[rank]);
-////			gsl_vector_set_zero(cumul2risk_private[rank]);
-////			gsl_matrix_set_zero(cumulg2diag_private[rank]);
-//
-//			gsl_vector_set_zero(cumulrisk_start_private[rank]);
-//			gsl_matrix_set_zero(cumulgdiag_start_private[rank]);
-//			gsl_vector_set_zero(cumulrisk_end_private[rank]);
-//			gsl_matrix_set_zero(cumulgdiag_end_private[rank]);
-//
-//			for (int r = 0; r < ntimes; r++)
-//			{
-//				gsl_matrix_set_zero(cumulhdiag_start_private[rank][r]);
-//				gsl_matrix_set_zero(cumulhdiag_end_private[rank][r]);
-////				gsl_matrix_set_zero(cumulh2diag_private[rank][r]);
-//			}
-
-
-			cumulxb_private = gsl_vector_calloc(ntimes);
-			cumulrisk_start_private = gsl_vector_calloc(ntimes);
-			cumulgdiag_start_private = gsl_matrix_calloc(ntimes, nvar);
-			cumulhdiag_start_private = malloc(sizeof(gsl_matrix*) * ntimes);
-			cumulrisk_end_private = gsl_vector_calloc(ntimes);
-			cumulgdiag_end_private = gsl_matrix_calloc(ntimes, nvar);
-			cumulhdiag_end_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			gsl_vector * cumulxb_private = gsl_vector_calloc(ntimes);
+			gsl_vector * cumulrisk_start_private = gsl_vector_calloc(ntimes);
+			gsl_matrix * cumulgdiag_start_private = gsl_matrix_calloc(ntimes, nvar);
+			gsl_matrix ** cumulhdiag_start_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			gsl_vector * cumulrisk_end_private = gsl_vector_calloc(ntimes);
+			gsl_matrix * cumulgdiag_end_private = gsl_matrix_calloc(ntimes, nvar);
+			gsl_matrix ** cumulhdiag_end_private = malloc(sizeof(gsl_matrix*) * ntimes);
 
 			for (int r = 0; r < ntimes; r++)
 			{
@@ -738,15 +712,6 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 			cox_reg_accumul_hes(model, c, size, rank, newbeta, cumulxb_private,
 				cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,
 				cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private); // ,
-//				cumul2risk_private[rank], cumulg2diag_private[rank], cumulh2diag_private[rank]);
-
-/*				gsl_blas_daxpy(1.0, cumulxb_private[rank], cumulxb);
-//				gsl_blas_daxpy(1.0, cumul2risk_private[rank], cumul2risk);
-//				gsl_matrix_memcpy(cumulg2diag, cumulg2diag_private[rank]);
-			gsl_blas_daxpy(1.0, cumulrisk_start_private[rank], cumulrisk_start);
-			gsl_matrix_memcpy(cumulgdiag_start, cumulgdiag_start_private[rank]);
-			gsl_blas_daxpy(1.0, cumulrisk_end_private[rank], cumulrisk_end);
-			gsl_matrix_memcpy(cumulgdiag_end, cumulgdiag_end_private[rank]);*/
 			for (int r = 0; r < ntimes; r++)
 			{
 #pragma omp atomic update
@@ -768,12 +733,21 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 						cumulhdiag_start[r]->data[(rowN * nvar) + colN] += cumulhdiag_start_private[r]->data[(rowN * nvar) + colN];
 #pragma omp atomic update
 						cumulhdiag_end[r]->data[(rowN * nvar) + colN] += cumulhdiag_end_private[r]->data[(rowN * nvar) + colN];
-//							cumulh2diag[r]->data[(rowN * nvar) + colN] += cumulh2diag_private[r]->data[(rowN * nvar) + colN];
 					}
 				}
-				//gsl_matrix_add(cumulh2diag[r], cumulh2diag_private[r]);
-				//gsl_matrix_add(cumulhdiag[r], cumulhdiag_private[r]);
 			}
+			gsl_vector_free(cumulxb_private);
+			gsl_vector_free(cumulrisk_start_private);
+			gsl_matrix_free(cumulgdiag_start_private);
+			gsl_vector_free(cumulrisk_end_private);
+			gsl_matrix_free(cumulgdiag_end_private);
+			for (int r = 0; r < ntimes; r++)
+			{
+				gsl_matrix_free(cumulhdiag_start_private[r]);
+				gsl_matrix_free(cumulhdiag_end_private[r]);
+			}
+			free(cumulhdiag_start_private);
+			free(cumulhdiag_end_private);
 		}
 
 
@@ -812,37 +786,27 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 
 			if (mark > 0)
 			{
-				//incremental updates for efron
-				//double temp = (1.0 / mark);
 				newlk += vget(cumulxb, r);
 				gsl_vector_view zsum = gsl_matrix_subrow(sum_zbar, r, 0, nvar);
 				gsl_blas_daxpy((1.0), &zsum.vector, gdiag);
-			//	gsl_vector_view arow2 = gsl_matrix_row(cumulg2diag, r);
-			//	for (int k = 0; k < (int)mark; k++)
-			//	{
-				//	denom += vget(cumul2risk, r) * temp;
-					newlk -= log(denom);
-					gsl_vector_set_zero(atemp);
+				newlk -= log(denom);
+				gsl_vector_set_zero(atemp);
 
-					double scale = 1.0 / denom;
-			//		gsl_blas_daxpy(temp, &arow2.vector, running_gdiag);
-					gsl_blas_daxpy(scale, running_gdiag, atemp); //keep intermediate values for update of hdiag
-					gsl_blas_daxpy((-1.0), atemp, gdiag);
+				double scale = 1.0 / denom;
+				gsl_blas_daxpy(scale, running_gdiag, atemp); //keep intermediate values for update of hdiag
+				gsl_blas_daxpy((-1.0), atemp, gdiag);
 
-					for (int i = 0; i < nvar; i++)
-					{
-			//			gsl_vector_view cumulhrow2 = gsl_matrix_row(cumulh2diag[r], i);
-						gsl_vector_view hrow_running = gsl_matrix_row(running_hdiag, i);
-						gsl_vector_view hrow = gsl_matrix_row(hdiag, i);
+				for (int i = 0; i < nvar; i++)
+				{
+					gsl_vector_view hrow_running = gsl_matrix_row(running_hdiag, i);
+					gsl_vector_view hrow = gsl_matrix_row(hdiag, i);
 							
-			//			gsl_blas_daxpy(temp, &cumulhrow2.vector, &hrow_running.vector);
-						gsl_blas_dcopy(&hrow_running.vector, htemp);
-						double ai = vget(atemp, i);
-						gsl_blas_daxpy((-ai), atemp, htemp);
-						gsl_blas_dscal(scale, htemp);
-						gsl_blas_daxpy(1.0, htemp, &hrow.vector);
-					}
-			//	}
+					gsl_blas_dcopy(&hrow_running.vector, htemp);
+					double ai = vget(atemp, i);
+					gsl_blas_daxpy((-ai), atemp, htemp);
+					gsl_blas_dscal(scale, htemp);
+					gsl_blas_daxpy(1.0, htemp, &hrow.vector);
+				}
 			}
 		}
 
@@ -898,8 +862,8 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 //	model->intercept = vget(newbeta, nvar - 1);
 //	vset(&topic_beta.vector, nvar - 1, 0.0);
 	gsl_vector_free(beta);
-	gsl_vector_free(scale_z);
-	gsl_vector_free(mean_z);
+//	gsl_vector_free(scale_z);
+//	gsl_vector_free(mean_z);
 
 	gsl_vector_free(newbeta);
 	gsl_matrix_free(sum_zbar);
@@ -925,36 +889,9 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	gsl_matrix_free(hdiag);
 	gsl_vector_free(htemp);
 	gsl_vector_free(atemp);
-	for (int n = 0; n < threadn; n++)
-	{
-		gsl_vector_free(cumulxb_private[n]);
-		//		gsl_vector_free(cumul2risk_private[n]);
-		//		gsl_matrix_free(cumulg2diag_private[n]);
+	//for (int n = 0; n < threadn; n++)
+	//{
 
-		gsl_vector_free(cumulrisk_start_private[n]);
-		gsl_matrix_free(cumulgdiag_start_private[n]);
-		gsl_vector_free(cumulrisk_end_private[n]);
-		gsl_matrix_free(cumulgdiag_end_private[n]);
-		for (int r = 0; r < ntimes; r++)
-		{
-			gsl_matrix_free(cumulhdiag_start_private[n][r]);
-			gsl_matrix_free(cumulhdiag_end_private[n][r]);
-			//			gsl_matrix_free(cumulh2diag_private[n][r]);
-		}
-		free(cumulhdiag_start_private[n]);
-		free(cumulhdiag_end_private[n]);
-		//		free(cumulh2diag_private[n]);
-	}
-	free(cumulxb_private);
-	//	free(cumul2risk_private);
-	//	free(cumulg2diag_private);
-
-	free(cumulrisk_start_private);
-	free(cumulgdiag_start_private);
-	free(cumulrisk_end_private);
-	free(cumulgdiag_end_private);
-	free(cumulhdiag_start_private);
-	free(cumulhdiag_end_private);
 	//	free(cumulh2diag_private);
 	return iter;
 }
