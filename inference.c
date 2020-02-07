@@ -114,7 +114,7 @@ void lhood_bnd_old(llna_var_param* var, doc* doc, llna_model* mod)
 void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
 {
     int n = 0, i = 0, k = mod->k;
-    gsl_vector_set_zero(var->topic_scores);
+//    gsl_vector_set_zero(var->topic_scores);
     // E[log p(\eta | \mu, \Sigma)] + H(q(\eta | \lambda, \nu) NB log 2pi cancels out in likelihood
     double lhood = (0.5) * mod->log_det_inv_cov + (0.5)  * ((double) k - 1.0);
     double v = 0.0;
@@ -149,7 +149,7 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
         gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
         gsl_vector_const_view logomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
         
-        gsl_blas_daxpy(doc->count[n], &nphi.vector, var->topic_scores);
+ //       gsl_blas_daxpy(doc->count[n], &nphi.vector, var->topic_scores);
         gsl_blas_daxpy(-1.0, var->lambda, &nlogphi.vector);
         gsl_blas_daxpy(-1.0, &logomega.vector, &nlogphi.vector);
         gsl_vector_scale(&nlogphi.vector, -1.0);
@@ -164,7 +164,7 @@ void lhood_bnd(llna_var_param* var, doc* doc, llna_model* mod)
 
 void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
 {
-    gsl_vector_set_zero(var->topic_scores);
+ //   gsl_vector_set_zero(var->topic_scores);
 
     // E[log p(z_n | \eta)] + E[log p(w_n | \omega)] + H(q(z_n | \phi_n))
     double cbhz_prod = 1.0;
@@ -473,8 +473,9 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     // precompute \sum_n \phi_n and put it in the bundle
     int k = mod->k;
+    gsl_matrix_view phi = gsl_matrix_submatrix(var->phi, 0, 0, doc->nterms, (mod->k)-1);
     gsl_vector_set_zero(var->sum_phi);
-    col_sum(var->phi, var->sum_phi);
+    col_sum(&phi.matrix, var->sum_phi);
 
 
     lambda_obj.f = &f_lambda;
@@ -491,7 +492,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     
     gsl_vector_view lambda = gsl_vector_subvector(var->lambda, 0, k - 1);
     gsl_blas_dcopy(&lambda.vector, var->tempvector[4]);
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.01, 0.001);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.01, 0.1);
     do
     {
         iter++;
@@ -621,9 +622,10 @@ void opt_nu_i(int i, llna_var_param * var, llna_model * mod, doc * d)
 void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
 {
     int i;
-
-    gsl_matrix_set_all(var->phi, 1.0/mod->k);
-    gsl_matrix_set_all(var->log_phi, log(1.0 / (double) mod->k));
+    gsl_matrix_view phi = gsl_matrix_submatrix(var->phi, 0, 0, doc->nterms, mod->k);
+    gsl_matrix_view log_phi = gsl_matrix_submatrix(var->log_phi, 0, 0, doc->nterms, mod->k);
+    gsl_matrix_set_all(&phi.matrix, 1.0/mod->k);
+    gsl_matrix_set_all(&log_phi.matrix, log(1.0 / (double) mod->k));
 
     var->zeta = 10;
     for (i = 0; i < mod->k-1; i++)
@@ -689,7 +691,7 @@ llna_var_param * new_llna_var_param(int nterms, int k)
         ret->log_phi = gsl_matrix_calloc(nterms, k);
         ret->sum_phi = gsl_vector_calloc((size_t)k);
         ret->zeta = 0;
-        ret->topic_scores = gsl_vector_calloc(k);
+     //   ret->topic_scores = gsl_vector_calloc(k);
         ret->tempvector = malloc(sizeof(gsl_vector*) * ntemp);
         if (ret->tempvector != NULL && ntemp > 0)
         {
@@ -702,7 +704,10 @@ llna_var_param * new_llna_var_param(int nterms, int k)
         return(ret);
     }
     else
+    {
+        printf("Out of memory\n");
         return NULL;
+    }
 }
 
 
@@ -714,7 +719,7 @@ void free_llna_var_param(llna_var_param * v)
     gsl_matrix_free(v->phi);
     gsl_matrix_free(v->log_phi);
     gsl_vector_free(v->sum_phi);
-    gsl_vector_free(v->topic_scores);
+ //   gsl_vector_free(v->topic_scores);
     for (int i = 0; i < ntemp; i++)
         free(v->tempvector[i]);
     gsl_matrix_free(v->scaledbetamatrix);

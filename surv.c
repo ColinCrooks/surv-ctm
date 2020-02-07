@@ -263,6 +263,30 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	gsl_vector* cumulg2diag = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulh2diag = gsl_vector_calloc(ntimes);
 	gsl_vector* step = gsl_vector_alloc(nvar);
+
+	int threadn = omp_get_num_procs();
+	//	cumul2risk_private = malloc(sizeof(gsl_vector*) * threadn);
+	//	cumulh2diag_private = malloc(sizeof(gsl_matrix**) * threadn);
+	//	cumulg2diag_private = malloc(sizeof(gsl_matrix*) * threadn);
+	gsl_vector** cumulxb_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumulrisk_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumulgdiag_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumulhdiag_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumul2risk_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumulg2diag_private = malloc(sizeof(gsl_vector*) * threadn);
+	gsl_vector** cumulh2diag_private = malloc(sizeof(gsl_vector*) * threadn);
+	for (int n = 0; n < threadn; n++)
+	{
+		cumulxb_private[n] = gsl_vector_calloc(ntimes);
+		cumulrisk_private[n] = gsl_vector_calloc(ntimes);
+		cumulgdiag_private[n] = gsl_vector_calloc(ntimes);
+		cumulhdiag_private[n] = gsl_vector_calloc(ntimes);
+		cumul2risk_private[n] = gsl_vector_calloc(ntimes);
+		cumulg2diag_private[n] = gsl_vector_calloc(ntimes);
+		cumulh2diag_private[n] = gsl_vector_calloc(ntimes);
+	}
+
+
 	gsl_vector_set_all(step, 1.0);
 	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
 	gsl_blas_dcopy(&topic_beta.vector, beta);
@@ -276,8 +300,6 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 		//gsl_vector_set_zero(dll);
 		for (int bn = 0; bn < nvar; bn++)
 		{	
-			//if (bn == base_index) continue;
-
 			gsl_vector_set_zero(cumulxb);
 			gsl_vector_set_zero(cumulrisk);
 			gsl_vector_set_zero(cumulgdiag);
@@ -285,38 +307,57 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 			gsl_vector_set_zero(cumul2risk);
 			gsl_vector_set_zero(cumulg2diag);
 			gsl_vector_set_zero(cumulh2diag);
-#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, bn, lastvar, dif, beta)  /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb_private,  cumulrisk_private, cumulgdiag_private, cumulhdiag_private, cumul2risk_private, cumulg2diag_private, cumulh2diag_private, cumulxb,  cumulrisk, cumulgdiag, cumulhdiag, cumul2risk, cumulg2diag, cumulh2diag, bn, lastvar, dif, beta)  /* for (i = 0; i < corpus->ndocs; i++) */
 			{
 				int size = omp_get_num_threads(); // get total number of processes
 				int rank = omp_get_thread_num(); // get rank of current
-				gsl_vector* cumulxb_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumulrisk_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumulgdiag_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumulhdiag_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumul2risk_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumulg2diag_private = gsl_vector_calloc(ntimes);
-				gsl_vector* cumulh2diag_private = gsl_vector_calloc(ntimes);
-				cox_reg_accumulation(model, c, size, rank, bn, lastvar, dif, beta, cumulxb_private, cumulrisk_private, cumulgdiag_private, cumulhdiag_private,
-					cumul2risk_private, cumulg2diag_private, cumulh2diag_private);
+				gsl_vector_set_zero(cumulxb_private[rank]);
+				gsl_vector_set_zero(cumulrisk_private[rank]);
+				gsl_vector_set_zero(cumulgdiag_private[rank]);
+				gsl_vector_set_zero(cumulhdiag_private[rank]);
+				gsl_vector_set_zero(cumul2risk_private[rank]);
+				gsl_vector_set_zero(cumulg2diag_private[rank]);
+				gsl_vector_set_zero(cumulh2diag_private[rank]);
+				cox_reg_accumulation(model, c, size, rank, bn, lastvar, dif, beta, cumulxb_private[rank], cumulrisk_private[rank], cumulgdiag_private[rank], cumulhdiag_private[rank],
+					cumul2risk_private[rank], cumulg2diag_private[rank], cumulh2diag_private[rank]);
 
-#pragma omp critical
+				for (int r = 0; r < ntimes; r++)
 				{
-					gsl_blas_daxpy(1.0, cumulxb_private, cumulxb);
-					gsl_blas_daxpy(1.0,  cumulrisk_private, cumulrisk);
-					gsl_blas_daxpy(1.0, cumulgdiag_private, cumulgdiag);
-					gsl_blas_daxpy(1.0,  cumulhdiag_private, cumulhdiag);
-					gsl_blas_daxpy(1.0, cumul2risk_private, cumul2risk);
-					gsl_blas_daxpy(1.0, cumulg2diag_private, cumulg2diag);
-					gsl_blas_daxpy(1.0,  cumulh2diag_private, cumulh2diag);
-				
+#pragma omp atomic update
+					cumulxb->data[r] += cumulxb_private[rank]->data[r];
+#pragma omp atomic update
+					cumulrisk->data[r] += cumulrisk_private[rank]->data[r];
+#pragma omp atomic update
+					cumul2risk->data[r] += cumul2risk_private[rank]->data[r];
+
+#pragma omp atomic update
+					cumulgdiag->data[r] += cumulgdiag_private[rank]->data[r];
+#pragma omp atomic update
+					cumulhdiag->data[r] += cumulhdiag_private[rank]->data[r];
+#pragma omp atomic update
+					cumulg2diag->data[r] += cumulg2diag_private[rank]->data[r];
+#pragma omp atomic update
+					cumulh2diag->data[r] += cumulh2diag_private[rank]->data[r];
+
 				}
-				gsl_vector_free(cumulxb_private);
-				gsl_vector_free(cumulrisk_private);
-				gsl_vector_free(cumulgdiag_private);
-				gsl_vector_free(cumulhdiag_private);
-				gsl_vector_free(cumul2risk_private);
-				gsl_vector_free(cumulg2diag_private);
-				gsl_vector_free(cumulh2diag_private);
+//#pragma omp critical
+//				{
+//					gsl_blas_daxpy(1.0, cumulxb_private, cumulxb);
+//					gsl_blas_daxpy(1.0,  cumulrisk_private, cumulrisk);
+//					gsl_blas_daxpy(1.0, cumulgdiag_private, cumulgdiag);
+//					gsl_blas_daxpy(1.0,  cumulhdiag_private, cumulhdiag);
+//					gsl_blas_daxpy(1.0, cumul2risk_private, cumul2risk);
+//					gsl_blas_daxpy(1.0, cumulg2diag_private, cumulg2diag);
+//					gsl_blas_daxpy(1.0,  cumulh2diag_private, cumulh2diag);
+//				
+//				}
+//				gsl_vector_free(cumulxb_private);
+//				gsl_vector_free(cumulrisk_private);
+//				gsl_vector_free(cumulgdiag_private);
+//				gsl_vector_free(cumulhdiag_private);
+//				gsl_vector_free(cumul2risk_private);
+//				gsl_vector_free(cumulg2diag_private);
+//				gsl_vector_free(cumulh2diag_private);
 			}
 
 		//	if (iter==1) printf("Parrallel beta %d (%f) \t time %d\t sumzbar %f \t cumulxb %f\t cumulrisk %f\t cumulgdiag %f \t cumulhdiag %f \t cumul2risk %f\t cumul2gdiag %f \t cumul2hdiag %f \n",	bn, vget(beta,bn) , ntimes, mget(sum_zbar,1,bn), vget(cumulxb,1), vget(cumulrisk,ntimes-1), vget(cumulgdiag, ntimes-1), vget(cumulhdiag, ntimes-1), vget(cumul2risk, 1), vget(cumulg2diag, 1), vget(cumulh2diag,1));
@@ -385,6 +426,29 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	gsl_vector_free(cumulg2diag);
 	gsl_vector_free(cumulh2diag);
 	gsl_vector_free(beta);
+
+	for (int n = 0; n < threadn; n++)
+	{
+		gsl_vector_free(cumulxb_private[n]);
+		//		cumul2risk_private[n] = gsl_vector_calloc(ntimes);
+		//		cumulh2diag_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
+		//		cumulg2diag_private[n] = gsl_matrix_calloc(ntimes, nvar);
+
+		gsl_vector_free(cumulrisk_private[n]);
+		gsl_vector_free(cumulgdiag_private[n]);
+		gsl_vector_free(cumulhdiag_private[n]);
+		gsl_vector_free(cumul2risk_private[n]);
+		gsl_vector_free(cumulg2diag_private[n]);
+		gsl_vector_free(cumulh2diag_private[n]);
+	}
+
+	free(cumulxb_private);
+	free(cumulrisk_private);
+	free(cumulgdiag_private);
+	free(cumulhdiag_private);
+	free(cumul2risk_private);
+	free(cumulg2diag_private);
+	free(cumulh2diag_private);
 	return(iter);
 }
 
@@ -529,11 +593,10 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	int ntimes = model->range_t;
 	double loglik = 0.0, newlk = 0.0;
 	gsl_vector* mean_z, * scale_z, * beta, * newbeta, * cumulxb, /* cumul2risk,*/* gdiag, * cumulrisk_start, * cumulrisk_end, * running_gdiag, * htemp, * atemp;
-	//gsl_vector** cumulxb_private, /** cumul2risk_private,*/** cumulrisk_start_private, ** cumulrisk_end_private;
+	gsl_vector** cumulxb_private, /** cumul2risk_private,*/** cumulrisk_start_private, ** cumulrisk_end_private;
 	gsl_matrix* sum_zbar, * hdiag, /* cumulg2diag,*/* cumulgdiag_start, * cumulgdiag_end, * running_hdiag;
-	gsl_matrix** /*cumulh2diag, ***/ cumulhdiag_start, ** cumulhdiag_end; 
-	/*, * cumulg2diag_private,** cumulgdiag_start_private, ** cumulgdiag_end_private;*/
-	//gsl_matrix*** cumulhdiag_start_private, *** cumulhdiag_end_private/*, *** cumulh2diag_private*/;
+	gsl_matrix** /*cumulh2diag, ***/ cumulhdiag_start, ** cumulhdiag_end, /* cumulg2diag_private,*/ ** cumulgdiag_start_private, ** cumulgdiag_end_private;
+	gsl_matrix*** cumulhdiag_start_private, *** cumulhdiag_end_private/*, *** cumulh2diag_private*/;
 
 	sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 
@@ -576,39 +639,39 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	htemp = gsl_vector_alloc(nvar);
 	atemp = gsl_vector_alloc(nvar);
 
-	////working memory for threads - takes too much memory
-	////int threadn = omp_get_num_procs();
-	////	cumul2risk_private = malloc(sizeof(gsl_vector*) * threadn);
-	////	cumulh2diag_private = malloc(sizeof(gsl_matrix**) * threadn);
-	////	cumulg2diag_private = malloc(sizeof(gsl_matrix*) * threadn);
-	//cumulxb_private = malloc(sizeof(gsl_vector*) * threadn);
-	//cumulrisk_start_private = malloc(sizeof(gsl_vector*) * threadn);
-	//cumulgdiag_start_private = malloc(sizeof(gsl_matrix*) * threadn);
-	//cumulhdiag_start_private = malloc(sizeof(gsl_matrix**) * threadn);
-	//cumulrisk_end_private = malloc(sizeof(gsl_vector*) * threadn);
-	//cumulgdiag_end_private = malloc(sizeof(gsl_matrix*) * threadn);
-	//cumulhdiag_end_private = malloc(sizeof(gsl_matrix**) * threadn);
-	//for (int n = 0; n < threadn; n++)
-	//{
-	//	cumulxb_private[n] = gsl_vector_calloc(ntimes);
-	//	//		cumul2risk_private[n] = gsl_vector_calloc(ntimes);
-	//	//		cumulh2diag_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
-	//	//		cumulg2diag_private[n] = gsl_matrix_calloc(ntimes, nvar);
+	//working memory for threads - takes too much memory
+	int threadn = omp_get_num_procs();
+	//	cumul2risk_private = malloc(sizeof(gsl_vector*) * threadn);
+	//	cumulh2diag_private = malloc(sizeof(gsl_matrix**) * threadn);
+	//	cumulg2diag_private = malloc(sizeof(gsl_matrix*) * threadn);
+	cumulxb_private = malloc(sizeof(gsl_vector*) * threadn);
+	cumulrisk_start_private = malloc(sizeof(gsl_vector*) * threadn);
+	cumulgdiag_start_private = malloc(sizeof(gsl_matrix*) * threadn);
+	cumulhdiag_start_private = malloc(sizeof(gsl_matrix**) * threadn);
+	cumulrisk_end_private = malloc(sizeof(gsl_vector*) * threadn);
+	cumulgdiag_end_private = malloc(sizeof(gsl_matrix*) * threadn);
+	cumulhdiag_end_private = malloc(sizeof(gsl_matrix**) * threadn);
+	for (int n = 0; n < threadn; n++)
+	{
+		cumulxb_private[n] = gsl_vector_calloc(ntimes);
+		//		cumul2risk_private[n] = gsl_vector_calloc(ntimes);
+		//		cumulh2diag_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
+		//		cumulg2diag_private[n] = gsl_matrix_calloc(ntimes, nvar);
 
-	//	cumulrisk_start_private[n] = gsl_vector_calloc(ntimes);
-	//	cumulgdiag_start_private[n] = gsl_matrix_calloc(ntimes, nvar);
-	//	cumulhdiag_start_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
-	//	cumulrisk_end_private[n] = gsl_vector_calloc(ntimes);
-	//	cumulgdiag_end_private[n] = gsl_matrix_calloc(ntimes, nvar);
-	//	cumulhdiag_end_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
+		cumulrisk_start_private[n] = gsl_vector_calloc(ntimes);
+		cumulgdiag_start_private[n] = gsl_matrix_calloc(ntimes, nvar);
+		cumulhdiag_start_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
+		cumulrisk_end_private[n] = gsl_vector_calloc(ntimes);
+		cumulgdiag_end_private[n] = gsl_matrix_calloc(ntimes, nvar);
+		cumulhdiag_end_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
 
-	//	for (int r = 0; r < ntimes; r++)
-	//	{
-	//		cumulhdiag_start_private[n][r] = gsl_matrix_calloc(nvar, nvar);
-	//		cumulhdiag_end_private[n][r] = gsl_matrix_calloc(nvar, nvar);
-	//		//			cumulh2diag_private[n][r] = gsl_matrix_calloc(nvar, nvar);
-	//	}
-	//}
+		for (int r = 0; r < ntimes; r++)
+		{
+			cumulhdiag_start_private[n][r] = gsl_matrix_calloc(nvar, nvar);
+			cumulhdiag_end_private[n][r] = gsl_matrix_calloc(nvar, nvar);
+			//			cumulh2diag_private[n][r] = gsl_matrix_calloc(nvar, nvar);
+		}
+	}
 // #pragma omp parallel default(none) shared(c, model, nused, nvar, mean_z, scale_z) /* for (i = 0; i < corpus->ndocs; i++) */
 //	{
 //		int size = omp_get_num_threads(); // get total number of processes
@@ -689,65 +752,77 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 		}
 
 		//Acuumulation loop across all patients in parallel
-#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk_start, cumulgdiag_start, cumulhdiag_start,  cumulrisk_end, cumulgdiag_end, cumulhdiag_end,   newbeta) //  cumulxb_private,  cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,  cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private, cumul2risk, cumulg2diag, cumulh2diag, cumul2risk_private, cumulg2diag_private, cumulh2diag_private  /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel  default(none) shared(c, model, ntimes, nvar, cumulxb,  cumulrisk_start, cumulgdiag_start, cumulhdiag_start,  cumulrisk_end, cumulgdiag_end, cumulhdiag_end,  cumulxb_private,  cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,  cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private,  newbeta) //  cumul2risk, cumulg2diag, cumulh2diag, cumul2risk_private, cumulg2diag_private, cumulh2diag_private  /* for (i = 0; i < corpus->ndocs; i++) */
 		{
 			int size = omp_get_num_threads(); // get total number of processes
 			int rank = omp_get_thread_num(); // get rank of current
 
-			gsl_vector * cumulxb_private = gsl_vector_calloc(ntimes);
-			gsl_vector * cumulrisk_start_private = gsl_vector_calloc(ntimes);
-			gsl_matrix * cumulgdiag_start_private = gsl_matrix_calloc(ntimes, nvar);
-			gsl_matrix ** cumulhdiag_start_private = malloc(sizeof(gsl_matrix*) * ntimes);
-			gsl_vector * cumulrisk_end_private = gsl_vector_calloc(ntimes);
-			gsl_matrix * cumulgdiag_end_private = gsl_matrix_calloc(ntimes, nvar);
-			gsl_matrix ** cumulhdiag_end_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			//gsl_vector * cumulxb_private = gsl_vector_calloc(ntimes);
+			//gsl_vector * cumulrisk_start_private = gsl_vector_calloc(ntimes);
+			//gsl_matrix * cumulgdiag_start_private = gsl_matrix_calloc(ntimes, nvar);
+			//gsl_matrix ** cumulhdiag_start_private = malloc(sizeof(gsl_matrix*) * ntimes);
+			//gsl_vector * cumulrisk_end_private = gsl_vector_calloc(ntimes);
+			//gsl_matrix * cumulgdiag_end_private = gsl_matrix_calloc(ntimes, nvar);
+			//gsl_matrix ** cumulhdiag_end_private = malloc(sizeof(gsl_matrix*) * ntimes);
+
+			//for (int r = 0; r < ntimes; r++)
+			//{
+			//	cumulhdiag_start_private[r] = gsl_matrix_calloc(nvar, nvar);
+			//	cumulhdiag_end_private[r] = gsl_matrix_calloc(nvar, nvar);
+			//}
+			gsl_vector_set_zero(cumulxb_private[rank]);
+			gsl_vector_set_zero(cumulrisk_start_private[rank]);
+			gsl_matrix_set_zero(cumulgdiag_start_private[rank]);
+			
+			gsl_vector_set_zero(cumulrisk_end_private[rank]);
+			gsl_matrix_set_zero(cumulgdiag_end_private[rank]);
+			
 
 			for (int r = 0; r < ntimes; r++)
 			{
-				cumulhdiag_start_private[r] = gsl_matrix_calloc(nvar, nvar);
-				cumulhdiag_end_private[r] = gsl_matrix_calloc(nvar, nvar);
+				gsl_matrix_set_zero(cumulhdiag_start_private[rank][r]);
+				gsl_matrix_set_zero(cumulhdiag_end_private[rank][r]);
 			}
 
-
-			cox_reg_accumul_hes(model, c, size, rank, newbeta, cumulxb_private,
-				cumulrisk_start_private, cumulgdiag_start_private, cumulhdiag_start_private,
-				cumulrisk_end_private, cumulgdiag_end_private, cumulhdiag_end_private); // ,
+			cox_reg_accumul_hes(model, c, size, rank, newbeta, cumulxb_private[rank],
+				cumulrisk_start_private[rank], cumulgdiag_start_private[rank], cumulhdiag_start_private[rank],
+				cumulrisk_end_private[rank], cumulgdiag_end_private[rank], cumulhdiag_end_private[rank]); // ,
 			for (int r = 0; r < ntimes; r++)
 			{
 #pragma omp atomic update
-				cumulxb->data[r] += cumulxb_private->data[r];
+				cumulxb->data[r] += cumulxb_private[rank]->data[r];
 #pragma omp atomic update
-				cumulrisk_start->data[r] += cumulrisk_start_private->data[r];
+				cumulrisk_start->data[r] += cumulrisk_start_private[rank]->data[r];
 #pragma omp atomic update
-				cumulrisk_end->data[r] += cumulrisk_end_private->data[r];
+				cumulrisk_end->data[r] += cumulrisk_end_private[rank]->data[r];
 				for (int rowN = 0; rowN < nvar; rowN++)
 				{
 #pragma omp atomic update
-					cumulgdiag_start->data[(r * nvar) + rowN] += cumulgdiag_start_private->data[(r * nvar) + rowN];
+					cumulgdiag_start->data[(r * nvar) + rowN] += cumulgdiag_start_private[rank]->data[(r * nvar) + rowN];
 #pragma omp atomic update
-					cumulgdiag_end->data[(r * nvar) + rowN] += cumulgdiag_end_private->data[(r * nvar) + rowN];
+					cumulgdiag_end->data[(r * nvar) + rowN] += cumulgdiag_end_private[rank]->data[(r * nvar) + rowN];
 
 					for (int colN = rowN; colN < nvar; colN++)
 					{
 #pragma omp atomic update
-						cumulhdiag_start[r]->data[(rowN * nvar) + colN] += cumulhdiag_start_private[r]->data[(rowN * nvar) + colN];
+						cumulhdiag_start[r]->data[(rowN * nvar) + colN] += cumulhdiag_start_private[rank][r]->data[(rowN * nvar) + colN];
 #pragma omp atomic update
-						cumulhdiag_end[r]->data[(rowN * nvar) + colN] += cumulhdiag_end_private[r]->data[(rowN * nvar) + colN];
+						cumulhdiag_end[r]->data[(rowN * nvar) + colN] += cumulhdiag_end_private[rank][r]->data[(rowN * nvar) + colN];
 					}
 				}
 			}
-			gsl_vector_free(cumulxb_private);
-			gsl_vector_free(cumulrisk_start_private);
-			gsl_matrix_free(cumulgdiag_start_private);
-			gsl_vector_free(cumulrisk_end_private);
-			gsl_matrix_free(cumulgdiag_end_private);
-			for (int r = 0; r < ntimes; r++)
-			{
-				gsl_matrix_free(cumulhdiag_start_private[r]);
-				gsl_matrix_free(cumulhdiag_end_private[r]);
-			}
-			free(cumulhdiag_start_private);
-			free(cumulhdiag_end_private);
+			//gsl_vector_free(cumulxb_private);
+			//gsl_vector_free(cumulrisk_start_private);
+			//gsl_matrix_free(cumulgdiag_start_private);
+			//gsl_vector_free(cumulrisk_end_private);
+			//gsl_matrix_free(cumulgdiag_end_private);
+			//for (int r = 0; r < ntimes; r++)
+			//{
+			//	gsl_matrix_free(cumulhdiag_start_private[r]);
+			//	gsl_matrix_free(cumulhdiag_end_private[r]);
+			//}
+			//free(cumulhdiag_start_private);
+			//free(cumulhdiag_end_private);
 		}
 
 
@@ -889,9 +964,42 @@ int cox_reg_hes(llna_model* model, corpus* c, double* f)
 	gsl_matrix_free(hdiag);
 	gsl_vector_free(htemp);
 	gsl_vector_free(atemp);
-	//for (int n = 0; n < threadn; n++)
-	//{
 
+	//working memory for threads - takes too much memory
+	//	cumul2risk_private = malloc(sizeof(gsl_vector*) * threadn);
+	//	cumulh2diag_private = malloc(sizeof(gsl_matrix**) * threadn);
+	//	cumulg2diag_private = malloc(sizeof(gsl_matrix*) * threadn);
+
+	for (int n = 0; n < threadn; n++)
+	{
+		gsl_vector_free(cumulxb_private[n]);
+		//		cumul2risk_private[n] = gsl_vector_calloc(ntimes);
+		//		cumulh2diag_private[n] = malloc(sizeof(gsl_matrix*) * ntimes);
+		//		cumulg2diag_private[n] = gsl_matrix_calloc(ntimes, nvar);
+
+		gsl_vector_free(cumulrisk_start_private[n]);
+		gsl_matrix_free(cumulgdiag_start_private[n]);
+		gsl_vector_free(cumulrisk_end_private[n]);
+		gsl_matrix_free(cumulgdiag_end_private[n]);
+
+		for (int r = 0; r < ntimes; r++)
+		{
+			gsl_matrix_free(cumulhdiag_start_private[n][r]);
+			gsl_matrix_free(cumulhdiag_end_private[n][r]);
+			//			cumulh2diag_private[n][r] = gsl_matrix_calloc(nvar, nvar);
+		}
+		free(cumulhdiag_end_private[n]);
+		free(cumulhdiag_start_private[n]);
+	}
+
+	free(cumulxb_private);
+	free(cumulrisk_start_private);
+	free(cumulgdiag_start_private);
+	free(cumulhdiag_start_private);
+	free(cumulrisk_end_private);
+	free(cumulgdiag_end_private);
+	free(cumulhdiag_end_private);
+	
 	//	free(cumulh2diag_private);
 	return iter;
 }

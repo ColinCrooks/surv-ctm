@@ -81,15 +81,18 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
     double total= 0.0; 
     *avg_niter = 0.0;
     *converged_pct = 0;
-   // int threadn = omp_get_num_procs();
-    //llna_var_param** var;
+    int threadn = omp_get_num_procs();
+    llna_var_param** var = malloc(sizeof(llna_var_param*)*threadn);
     double avniter = 0.0;
     double convergedpct = 0;
     gsl_matrix_set_zero(corpus->zbar);
 
+    for (int n = 0; n < threadn; n++)
+        var[n] = new_llna_var_param(corpus->nterms, model->k);
+    
 
 
-#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss,  corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, var, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
         int i, j;
         int size = omp_get_num_threads(); // get total number of processes
@@ -99,33 +102,33 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
         gsl_vector lambda, nu;
  //       gsl_vector* phi_sum;
         doc doc;
-        llna_var_param* var;
+      //  llna_var_param* var;
+
  //       phi_sum = gsl_vector_alloc(model->k);
         for (i = (rank * corpus->ndocs / size); i < (rank + 1) * corpus->ndocs / size; i++)
         {
            // printf("doc %5d   ", i);
             doc = corpus->docs[i];
-            var  = new_llna_var_param(doc.nterms, model->k);
 
           /*  if (var == NULL)
                 return;*/
             if (reset_var)
-                init_var_unif(var, &doc, model);
+                init_var_unif(var[rank], &doc, model);
             else
             {
                 lambda = gsl_matrix_row(corpus_lambda, i).vector;
                 nu = gsl_matrix_row(corpus_nu, i).vector;
-                init_var(var, &doc, model, &lambda, &nu);
+                init_var(var[rank], &doc, model, &lambda, &nu);
             }
-            lhood = var_inference(var, &doc, model);
+            lhood = var_inference(var[rank], &doc, model);
 #pragma omp critical
             {
-                update_expected_ss(var, &doc, ss);
+                update_expected_ss(var[rank], &doc, ss);
             }
             total += lhood;
             // printf("lhood %5.5e   niter %5d\n", lhood, var->niter);
-            avniter += var->niter;
-            convergedpct += var->converged;
+            avniter += var[rank]->niter;
+            convergedpct += var[rank]->converged;
 
             // Allocated topics for survival supervision
             gsl_vector_view zbarow = gsl_matrix_row(corpus->zbar, i);
@@ -133,7 +136,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             for (int n = 0; n < doc.nterms; n++)
             {
                 double scale = (double)doc.count[n] / (double)doc.total;
-                gsl_vector_view phirow = gsl_matrix_row(var->phi, n);
+                gsl_vector_view phirow = gsl_matrix_row(var[rank]->phi, n);
                 gsl_blas_daxpy(scale, &phirow.vector, &zbarow.vector);
              //   for (j = 0; j < model->k; j++)
             //    {
@@ -148,15 +151,18 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
             //gsl_vector_view zbar = gsl_matrix_row(corpus->zbar, i);
             //vprint(&zbar.vector);
 
-            gsl_matrix_set_row(corpus_lambda, i, var->lambda);
-            gsl_matrix_set_row(corpus_nu, i, var->nu);
-            gsl_matrix_set_row(corpus_phi_sum, i, var->sum_phi);
-            free_llna_var_param(var);
+            gsl_matrix_set_row(corpus_lambda, i, var[rank]->lambda);
+            gsl_matrix_set_row(corpus_nu, i, var[rank]->nu);
+            gsl_matrix_set_row(corpus_phi_sum, i, var[rank]->sum_phi);
+            
         }
 
     //    gsl_vector_free(phi_sum);
     }
-
+    for (int n = 0; n < threadn; n++)
+        free_llna_var_param(var[n]);
+    
+    free(var);
     *avg_niter = avniter / corpus->ndocs;
     *converged_pct = convergedpct / corpus->ndocs;
     *total_lhood = total;
@@ -599,16 +605,16 @@ void em(char* dataset, int k, char* start, char* dir)
 
 
         printf("Expectation likelihood %5.5e \t ", lhood);
-        printf("%5.0f percent documents converged\n", converged_pct*100);
+        printf("%3.0f percent documents converged, averaged %3.1f iterations.\n", converged_pct*100, avg_niter);
         convergence = (lhood_old - lhood) / lhood_old;
         //int base_index = 0;
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
 
 
-        cox_iter = cox_reg_hes(model, corpus, &f);
+     //   cox_iter = cox_reg_hes(model, corpus, &f);
 
-     //  cox_iter = cox_reg_dist(model, corpus, &f);
+       cox_iter = cox_reg_dist(model, corpus, &f);
      //   cox_iter = cox_reg(model, corpus, &f);
      /*   while (cox_iter <= 0)
         {
