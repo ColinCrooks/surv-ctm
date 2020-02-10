@@ -193,9 +193,10 @@
       <Mtune>skylake</Mtune>
       <OpenMP>GenerateParallelCode</OpenMP>
       <LoopUnrolling>255</LoopUnrolling>
-      <OptimizeForWindowsApplication>true</OptimizeForWindowsApplication>
+      <OptimizeForWindowsApplication>false</OptimizeForWindowsApplication>
       <ConditionalBranch>keep</ConditionalBranch>
       <OffloadArch>OffloadMICAVX512</OffloadArch>
+      <LlvmTransitionalOption>NextGenNone</LlvmTransitionalOption>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

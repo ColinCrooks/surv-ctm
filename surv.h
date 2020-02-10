@@ -32,6 +32,10 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 	gsl_vector* cumulrisk_start, gsl_matrix* cumulgdiag_start, gsl_matrix** cumulhdiag_start,
 	gsl_vector* cumulrisk_end, gsl_matrix* cumulgdiag_end, gsl_matrix** cumulhdiag_end/*,
 	gsl_vector* cumul2risk, gsl_matrix* cumulg2diag, gsl_matrix** cumulh2diag*/);
+void cox_reg_accumul_hessian_atomic(llna_model* model, corpus* c, int size, int rank,
+	gsl_vector* beta, gsl_vector* cumulxb,
+	gsl_vector* cumulrisk, gsl_matrix* cumulgdiag, gsl_matrix** cumulhdiag);
+
 void cox_reg_hes_init_accumul(llna_model* model, gsl_matrix* sum_zbar_events_cumulative, corpus* c, int size, int rank);
 //void cox_reg_hes_intitialise(int nvar, int ntimes, llna_model* model, gsl_matrix* sum_zbar, gsl_vector* gdiag, gsl_matrix* hdiag, gsl_vector* mean_z,
 //	gsl_vector* scale_z, gsl_vector* beta, gsl_vector* newbeta, gsl_vector* cumulxb, /*gsl_vector* cumul2risk, gsl_matrix* cumulg2diag,

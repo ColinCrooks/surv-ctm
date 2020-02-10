@@ -282,7 +282,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
         cbhz_prod *= temp;
     }
 
-    double dif = 0.0;
+    //double dif = 0.0;
     // compute phi proportions in log space
    
         for (n = 0; n < doc->nterms; n++)
@@ -473,15 +473,18 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
 
     // precompute \sum_n \phi_n and put it in the bundle
     int k = mod->k;
-    gsl_matrix_view phi = gsl_matrix_submatrix(var->phi, 0, 0, doc->nterms, (mod->k)-1);
+    
     gsl_vector_set_zero(var->sum_phi);
-    col_sum(&phi.matrix, var->sum_phi);
-
+    for (i = 0; i < doc->nterms; i++)
+    {
+        gsl_vector_const_view iphi = gsl_matrix_const_row(var->phi, i);
+        gsl_blas_daxpy((double)doc->count[i], &iphi.vector, var->sum_phi);
+    }
 
     lambda_obj.f = &f_lambda;
     lambda_obj.df = &df_lambda;
     lambda_obj.fdf = &fdf_lambda;
-    lambda_obj.n = (size_t)(mod->k)- 1;
+    lambda_obj.n = (size_t)k - 1;
     lambda_obj.params = (void *)&b;
 
     // starting value
@@ -492,7 +495,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     
     gsl_vector_view lambda = gsl_vector_subvector(var->lambda, 0, k - 1);
     gsl_blas_dcopy(&lambda.vector, var->tempvector[4]);
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.01, 0.1);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.01, 0.001);
     do
     {
         iter++;
@@ -781,15 +784,25 @@ void update_expected_ss(llna_var_param* var, doc* d, llna_ss* ss)
     // covariance and mean suff stats
     for (i = 0; i < ss->cov_ss->size1; i++)
     {
-        vinc(ss->mu_ss, i, vget(var->lambda, i));
+#pragma omp atomic update
+        ss->mu_ss->data[i] += var->lambda->data[i];
+       // vinc(ss->mu_ss, i, vget(var->lambda, i));
         for (j = 0; j < ss->cov_ss->size2; j++)
         {
             lilj = vget(var->lambda, i) * vget(var->lambda, j);
-            if (i==j)
-                mset(ss->cov_ss, i, j,
-                     mget(ss->cov_ss, i, j) + vget(var->nu, i) + lilj);
+            if (i == j)
+            {
+#pragma omp atomic update 
+                ss->cov_ss->data[(i * ss->cov_ss->tda) + j] += var->nu->data[i] + lilj;
+             //   mset(ss->cov_ss, i, j,
+               //     mget(ss->cov_ss, i, j) + vget(var->nu, i) + lilj);
+            }
             else
-                mset(ss->cov_ss, i, j, mget(ss->cov_ss, i, j) + lilj);
+            {
+#pragma omp atomic update 
+                ss->cov_ss->data[(i * ss->cov_ss->tda) + j] += lilj;
+//                mset(ss->cov_ss, i, j, mget(ss->cov_ss, i, j) + lilj);
+            }
         }
     }
     // topics suff stats
@@ -799,11 +812,14 @@ void update_expected_ss(llna_var_param* var, doc* d, llna_ss* ss)
         {
             w = d->word[i];
             c = d->count[i];
-            mset(ss->omega_ss, j, w,
-                 mget(ss->omega_ss, j, w) + c * mget(var->phi, i, j));
+#pragma omp atomic update
+            ss->omega_ss->data[(j * ss->omega_ss->tda) + w] += c * var->phi->data[(i * var->phi->tda) + j];
+ //           mset(ss->omega_ss, j, w,
+ //               mget(ss->omega_ss, j, w) + c * mget(var->phi, i, j));
         }
     }
     // number of data
+#pragma omp atomic update
     ss->ndata++;
 }
 

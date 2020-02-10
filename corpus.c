@@ -37,7 +37,7 @@ corpus* read_data(const char* data_filename)
     FILE *fileptr;
     int label, t_enter, t_exit, length,  count, word, inc, n, nd, nw, corpus_total = 0, min_t = 0, max_t = 0, d;
     corpus* c;
-    int ngroups = omp_get_num_procs();
+   // int ngroups = omp_get_num_procs();
     gsl_rng* r = gsl_rng_alloc(gsl_rng_taus);
     gsl_rng_set(r, (unsigned long) time(NULL));
 

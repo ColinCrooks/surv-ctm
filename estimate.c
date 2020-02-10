@@ -94,7 +94,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
 
 #pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, var, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
-        int i, j;
+        int i;
         int size = omp_get_num_threads(); // get total number of processes
         int rank = omp_get_thread_num(); // get rank of current
         double  lhood;
@@ -121,10 +121,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
                 init_var(var[rank], &doc, model, &lambda, &nu);
             }
             lhood = var_inference(var[rank], &doc, model);
-#pragma omp critical
-            {
-                update_expected_ss(var[rank], &doc, ss);
-            }
+            update_expected_ss(var[rank], &doc, ss);
             total += lhood;
             // printf("lhood %5.5e   niter %5d\n", lhood, var->niter);
             avniter += var[rank]->niter;
@@ -562,7 +559,7 @@ void em(char* dataset, int k, char* start, char* dir)
     corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
-    int threadn = omp_get_num_procs();
+    
 
 
     //cox_reg_hes_intitialise(model->k - 1, model->range_t, model, sum_zbar, gdiag, hdiag, mean_z,
