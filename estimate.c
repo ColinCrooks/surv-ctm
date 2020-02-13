@@ -609,9 +609,8 @@ void em(char* dataset, int k, char* start, char* dir)
      //   gsl_vector_set_zero(model->topic_beta);
 
 
-     //   cox_iter = cox_reg_hes(model, corpus, &f);
 
-       cox_iter = cox_reg_dist(model, corpus, &f);
+     //  cox_iter = cox_reg_dist(model, corpus, &f);
      //   cox_iter = cox_reg(model, corpus, &f);
      /*   while (cox_iter <= 0)
         {
@@ -619,16 +618,13 @@ void em(char* dataset, int k, char* start, char* dir)
            cox_iter = cox_reg_dist(model, corpus, &f);
        //     cox_iter = cox_reg(model, corpus, &f);
         }*/
-        printf("Cox liklihood %5.5e,  in %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
 
    /*     if (cox_iter > PARAMS.surv_max_iter && PARAMS.surv_penalty>1e-6)
             PARAMS.surv_penalty /= 10;
         else if (cox_iter <= 5 && PARAMS.surv_penalty<1e6)
             PARAMS.surv_penalty *= 10;*/
 
-        cumulative_basehazard(corpus, model);
-        vprint(model->topic_beta);
-        newC = cstat(corpus, model);
+
 
         if (convergence < 0 && PARAMS.runin!=model->iteration )
         {
@@ -636,9 +632,15 @@ void em(char* dataset, int k, char* start, char* dir)
         //    if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocations
             if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10; // provide longer for convergence
             else model->var_convergence /= 10;  
+            //Don't do maximisation/cox whilst heading in wrong direction
         }
         else
         {
+            cox_iter = cox_reg_hes(model, corpus, &f);
+            printf("Cox liklihood %5.5e,  in %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
+            cumulative_basehazard(corpus, model);
+            vprint(model->topic_beta);
+            newC = cstat(corpus, model);
             printf("Maximisation....\n");
             reset_var = 1;
             maximization(model, ss);

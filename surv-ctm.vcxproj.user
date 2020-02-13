@@ -5,7 +5,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LocalDebuggerCommandArguments>est P:\GPRD\SSLDA\Bayes\testsample.txt 10 rand output settings.txt</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments> est E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\testsample.txt 30 rand E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\test\ settings.txt</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -13,7 +13,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LocalDebuggerCommandArguments> est E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesN12mdemo_trainredo.out 80 rand E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\DUIPefron80\ settings.txt</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments> est E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesN12mdemo_trainredo.out 40 rand E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\DUIPefron40\ settings.txt</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>

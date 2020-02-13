@@ -130,11 +130,11 @@
       <UseProcessorExtensions>AVX</UseProcessorExtensions>
       <GenerateAlternateCodePaths>AVX</GenerateAlternateCodePaths>
       <OpenMP>GenerateSequentialCode</OpenMP>
-      <EmitDiagnosticsToFile>true</EmitDiagnosticsToFile>
-      <OptimizationDiagnosticLevel>Level5</OptimizationDiagnosticLevel>
-      <EmitOptimizationDiagnosticsToFile>true</EmitOptimizationDiagnosticsToFile>
-      <EnableGapAnalysis>Extreme</EnableGapAnalysis>
-      <EmitGAPDiagnosticsToFile>true</EmitGAPDiagnosticsToFile>
+      <EmitDiagnosticsToFile>false</EmitDiagnosticsToFile>
+      <OptimizationDiagnosticLevel>Disable</OptimizationDiagnosticLevel>
+      <EmitOptimizationDiagnosticsToFile>false</EmitOptimizationDiagnosticsToFile>
+      <EnableGapAnalysis>Disable</EnableGapAnalysis>
+      <EmitGAPDiagnosticsToFile>false</EmitGAPDiagnosticsToFile>
       <ConditionalBranch>keep</ConditionalBranch>
     </ClCompile>
     <Link>

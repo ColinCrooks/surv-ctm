@@ -130,6 +130,38 @@ corpus* read_data(const char* data_filename)
             c->docs[d].t_exit -= min_t;
         }
     }
+    int size = 20; //omp_get_num_procs();
+    double step = (double)nd / (double)size;
+
+    c->group = gsl_matrix_calloc(size, 3);
+    mset(c->group, 0, 0, 0);
+    mset(c->group, 0, 1, 0);
+    mset(c->group, 0, 2, c->docs[(int)step].t_exit);
+
+    printf("doc %d ", 0);
+    printf("exit %f ", mget(c->group, 0, 2));
+    printf("enter %f \n", mget(c->group, 0, 1));
+
+    int index = (int)((double)(step));
+    for (int r = 1; r < size; r++)
+    {
+        int endindex = (int)((double)((r + 1) * step));
+        mset(c->group, r, 0, index);
+        mset(c->group, r, 1, mget(c->group, r - 1, 2));
+        mset(c->group, r, 2, c->docs[endindex].t_exit);
+        if (mget(c->group, r, 2) <= mget(c->group, r - 1, 2))
+            while (mget(c->group, r, 2) >= c->docs[endindex].t_exit && endindex + 1 < nd) endindex++;
+
+       // mset(c->group, r, 0, index);
+      //  mset(c->group, r, 1, mget(c->group, r - 1, 2));
+        mset(c->group, r, 2, c->docs[endindex].t_exit);
+        printf("doc %d ", index);
+        printf("exit %f ", mget(c->group, r, 2));
+        printf("enter %f \n", mget(c->group, r, 1));
+        index = endindex;
+    }
+    mset(c->group, size - 1, 2, c->docs[nd - 1].t_exit + 1);
+    printf("exit %f \n", mget(c->group, size - 1, 2));
     /*
     //Allocate each person to a random subset for distributed cox regression
     gsl_vector* random = gsl_vector_calloc(nd);
