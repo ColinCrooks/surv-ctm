@@ -89,7 +89,6 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
 
     for (int n = 0; n < threadn; n++)
         var[n] = new_llna_var_param(corpus->nterms, model->k);
-    
 
 
 #pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, var, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
@@ -146,7 +145,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
                     //
             //printf("zbar\t");
             //gsl_vector_view zbar = gsl_matrix_row(corpus->zbar, i);
-            //vprint(&zbar.vector);
+
 
             gsl_matrix_set_row(corpus_lambda, i, var[rank]->lambda);
             gsl_matrix_set_row(corpus_nu, i, var[rank]->nu);
@@ -608,7 +607,7 @@ void em(char* dataset, int k, char* start, char* dir)
         double f = 0.0; 
      //   gsl_vector_set_zero(model->topic_beta);
 
-
+ //       mprint(corpus->zbar);
 
      //  cox_iter = cox_reg_dist(model, corpus, &f);
      //   cox_iter = cox_reg(model, corpus, &f);
@@ -623,9 +622,37 @@ void em(char* dataset, int k, char* start, char* dir)
             PARAMS.surv_penalty /= 10;
         else if (cox_iter <= 5 && PARAMS.surv_penalty<1e6)
             PARAMS.surv_penalty *= 10;*/
+    //    clock_t c1 = clock();
+    //gsl_vector_set_zero(model->topic_beta);
+    //        cox_iter = cox_reg_hes(model, corpus, &f);
+    //        printf("Cox liklihood %5.5e,  in %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
+    //        cumulative_basehazard(corpus, model);
+    //        vprint(model->topic_beta);
+    //        newC = cstat(corpus, model);
+    //        clock_t c2 = clock();
+            gsl_vector_set_zero(model->topic_beta);
+        cox_iter = cox_reg_fullefron(model, corpus, &f);
+                (model, corpus, &f);
+            while(cox_iter <= 0)
+            {
+                PARAMS.surv_penalty /= 10;
+                cox_iter = cox_reg(model, corpus, &f);
+            }
+            if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty < 1e6)
+            {
+                cox_iter = cox_reg(model, corpus, &f);
+                if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty < 1e6) PARAMS.surv_penalty *= 10;
+            }
+            else if (cox_iter <=2 && PARAMS.surv_penalty>1e-6)
+                PARAMS.surv_penalty /= 10;
 
+            printf("Cox liklihood %5.5e, penalty %f, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+            cumulative_basehazard(corpus, model);
+            vprint(model->topic_beta);
+            newC = cstat(corpus, model);
+        //    clock_t c3 = clock();
 
-
+       //     printf("HES %d, DIST %d", c2 - c1, c3 - c2);
         if (convergence < 0 && PARAMS.runin!=model->iteration )
         {
             reset_var = 0; //retry using global lambda and mu for starting point for variational inference parameters if didn't converge from random start
@@ -636,11 +663,7 @@ void em(char* dataset, int k, char* start, char* dir)
         }
         else
         {
-            cox_iter = cox_reg_hes(model, corpus, &f);
-            printf("Cox liklihood %5.5e,  in %d iterations \t C statistic = %f\n", f, cox_iter, cstat(corpus, model));
-            cumulative_basehazard(corpus, model);
-            vprint(model->topic_beta);
-            newC = cstat(corpus, model);
+
             printf("Maximisation....\n");
             reset_var = 1;
             maximization(model, ss);
@@ -731,9 +754,9 @@ void inference(char* dataset, char* model_root, char* out)
 
     // approximate inference
    // init_temp_vectors(model->k-1); // !!! hacky
- //   sprintf(fname, "%s-word-assgn.dat", out);
- //   FILE* word_assignment_file = fopen(fname, "w");
-#pragma omp parallel default(none) shared(corpus, model, corpus_lambda,  corpus_nu, phi_sums, lhood, PARAMS) /* for (i = 0; i < corpus->ndocs; i++) */
+    sprintf(fname, "%s-word-assgn.dat", out);
+    FILE* word_assignment_file = fopen(fname, "w");
+#pragma omp parallel default(none) shared(corpus, model, corpus_lambda,  corpus_nu, phi_sums, lhood, PARAMS, word_assignment_file) /* for (i = 0; i < corpus->ndocs; i++) */
     {
         int i, j;
         int size = omp_get_num_threads(); // get total number of processes
@@ -753,13 +776,13 @@ void inference(char* dataset, char* model_root, char* out)
             for (int n = 0; n < doc.nterms; n++)
                 for (j = 0; j < model->k; j++)
                     minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double)doc.count[n] / (double)doc.total);
-        //    write_word_assignment(word_assignment_file, &doc, var->phi);
+#pragma omp critical
+            write_word_assignment(word_assignment_file, &doc, corpus->zbar);
 
         //    printf("document %05d, niter = %05d\n", i, var->niter);
             free_llna_var_param(var);
         }
     }
-
     cumulative_basehazard(corpus, model);
     printf("\n C statistic = %1.3f\n", cstat(corpus, model));
 

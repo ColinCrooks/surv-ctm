@@ -129,7 +129,7 @@
       <FloatingPointModel>Fast2</FloatingPointModel>
       <UseProcessorExtensions>AVX</UseProcessorExtensions>
       <GenerateAlternateCodePaths>AVX</GenerateAlternateCodePaths>
-      <OpenMP>GenerateSequentialCode</OpenMP>
+      <OpenMP>GenerateParallelCode</OpenMP>
       <EmitDiagnosticsToFile>false</EmitDiagnosticsToFile>
       <OptimizationDiagnosticLevel>Disable</OptimizationDiagnosticLevel>
       <EmitOptimizationDiagnosticsToFile>false</EmitOptimizationDiagnosticsToFile>

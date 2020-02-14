@@ -488,14 +488,14 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     lambda_obj.params = (void *)&b;
 
     // starting value
-     T = gsl_multimin_fdfminimizer_vector_bfgs;
-    //T = gsl_multimin_fdfminimizer_conjugate_fr;
+    // T = gsl_multimin_fdfminimizer_vector_bfgs;
+    T = gsl_multimin_fdfminimizer_conjugate_fr;
     // T = gsl_multimin_fdfminimizer_steepest_descent;
     s = gsl_multimin_fdfminimizer_alloc (T, (size_t)(mod->k) - 1);
     
     gsl_vector_view lambda = gsl_vector_subvector(var->lambda, 0, k - 1);
     gsl_blas_dcopy(&lambda.vector, var->tempvector[4]);
-    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.01, 0.001);
+    gsl_multimin_fdfminimizer_set (s, &lambda_obj, var->tempvector[4], 0.1, 0.01);
     do
     {
         iter++;
@@ -649,7 +649,11 @@ void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
         gsl_blas_dcopy(mod->topic_beta, &scaledbeta.vector);
         gsl_vector_scale(&scaledbeta.vector, (double)doc->count[n] / (double)doc->total);
         for (int i = 0; i < mod->k; i++)
+        {
             vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+#pragma omp critical
+            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
+        }
     }
 }
 
@@ -669,7 +673,12 @@ void init_var(llna_var_param * var, doc * doc, llna_model * mod, gsl_vector *lam
         gsl_blas_dcopy(mod->topic_beta, &scaledbeta.vector);
         gsl_vector_scale(&scaledbeta.vector, (double)doc->count[n] / (double)doc->total);
         for (int i = 0; i < mod->k; i++)
+        {
             vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
+#pragma omp critical
+            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
+
+        }
     }
 }
 
