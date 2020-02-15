@@ -75,7 +75,7 @@ extern llna_params PARAMS;
 void expectation(corpus* corpus, llna_model* model, llna_ss* ss, 
                  double* avg_niter, double* total_lhood,
                  gsl_matrix* corpus_lambda, gsl_matrix* corpus_nu,
-                 gsl_matrix* corpus_phi_sum,
+                /* gsl_matrix* corpus_phi_sum,*/
                  short reset_var, double* converged_pct)
 {
     double total= 0.0; 
@@ -91,7 +91,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
         var[n] = new_llna_var_param(corpus->nterms, model->k);
 
 
-#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, var, corpus_lambda,  corpus_nu, corpus_phi_sum, PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel reduction(+:total, avniter, convergedpct) default(none) shared(corpus, model, ss, var, corpus_lambda,  corpus_nu, /*corpus_phi_sum,*/ PARAMS, reset_var) /* for (i = 0; i < corpus->ndocs; i++) */
     {
         int i;
         int size = omp_get_num_threads(); // get total number of processes
@@ -149,7 +149,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
 
             gsl_matrix_set_row(corpus_lambda, i, var[rank]->lambda);
             gsl_matrix_set_row(corpus_nu, i, var[rank]->nu);
-            gsl_matrix_set_row(corpus_phi_sum, i, var[rank]->sum_phi);
+       //     gsl_matrix_set_row(corpus_phi_sum, i, &zbarow.vector);
             
         }
 
@@ -596,7 +596,7 @@ void em(char* dataset, int k, char* start, char* dir)
         time(&t2);
 
         expectation(corpus, model, ss,  &avg_niter, &lhood,
-                    corpus_lambda, corpus_nu, corpus_phi_sum,
+                    corpus_lambda, corpus_nu, /*corpus_phi_sum,*/
                     reset_var, &converged_pct);
 
 
@@ -605,6 +605,9 @@ void em(char* dataset, int k, char* start, char* dir)
         convergence = (lhood_old - lhood) / lhood_old;
         //int base_index = 0;
         double f = 0.0; 
+       
+        
+        
      //   gsl_vector_set_zero(model->topic_beta);
 
  //       mprint(corpus->zbar);
@@ -631,22 +634,21 @@ void em(char* dataset, int k, char* start, char* dir)
     //        newC = cstat(corpus, model);
     //        clock_t c2 = clock();
             gsl_vector_set_zero(model->topic_beta);
-        cox_iter = cox_reg_fullefron(model, corpus, &f);
-                (model, corpus, &f);
+            cox_iter = cox_reg_fullefron(model, corpus, &f);
             while(cox_iter <= 0)
             {
                 PARAMS.surv_penalty /= 10;
                 cox_iter = cox_reg(model, corpus, &f);
             }
-            if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty < 1e6)
+            if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty > 1e-6)
             {
                 cox_iter = cox_reg(model, corpus, &f);
-                if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty < 1e6) PARAMS.surv_penalty *= 10;
+                if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty > 1e-6) PARAMS.surv_penalty /= 10;
             }
-            else if (cox_iter <=2 && PARAMS.surv_penalty>1e-6)
-                PARAMS.surv_penalty /= 10;
+            else if (cox_iter <=2 && PARAMS.surv_penalty<1e10)
+                PARAMS.surv_penalty *= 10;
 
-            printf("Cox liklihood %5.5e, penalty %f, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+            printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
             cumulative_basehazard(corpus, model);
             vprint(model->topic_beta);
             newC = cstat(corpus, model);

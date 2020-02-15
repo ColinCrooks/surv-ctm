@@ -33,7 +33,7 @@ int cox_reg(llna_model* model, corpus* c, double* f)
 		vset(step, i, 1.0);
 	}
 
-	gsl_blas_dgemv(CblasNoTrans, 1, c->zbar, model->topic_beta, 0, zbeta);
+	gsl_blas_dgemv(CblasNoTrans, 1, c->zbar_scaled, model->topic_beta, 0, zbeta);
 
 
 	for (person = nused - 1; person >= 0; person--)
@@ -828,7 +828,7 @@ void cox_reg_accumul_hes(llna_model* model, corpus* c, int size, int rank,
 		unsigned int t_exit = ((unsigned int)c->docs[person].t_exit >= end_cumultime) ? end_cumultime - 1 :  (unsigned int)c->docs[person].t_exit;
 
 		//Patient level linear predictor and risk
-		gsl_vector_view z = gsl_matrix_subrow(c->zbar, person, 0, nvar);
+		gsl_vector_view z = gsl_matrix_subrow(c->zbar_scaled, person, 0, nvar);
 		double xb = 0.0;
 		gsl_blas_ddot(beta, &z.vector, &xb);
 		xb = xb > 22 ? 22 : xb;
@@ -863,7 +863,7 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 {
 
 	unsigned int nused = c->ndocs;
-	unsigned int nvar = model->k - 1;
+	unsigned int nvar = model->k;
 	double risk = 0;
 	double step = (double)nused / (double)size;
 
@@ -881,7 +881,7 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 		unsigned int t_exit = ((unsigned int)c->docs[person].t_exit >= end_cumultime) ? end_cumultime - 1 : (unsigned int)c->docs[person].t_exit;
 
 		//Patient level linear predictor and risk
-		gsl_vector_view z = gsl_matrix_subrow(c->zbar, person, 0, nvar);
+		gsl_vector_view z = gsl_matrix_subrow(c->zbar_scaled, person, 0, nvar);
 		double xb = 0.0;
 		gsl_blas_ddot(beta, &z.vector, &xb);
 		xb = xb > 22 ? 22 : xb;
@@ -914,7 +914,6 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 			for (unsigned int rowN = 0; rowN < nvar; rowN++)
 				for (unsigned int colN = rowN; colN < nvar; colN++)
 					cumul2hdiag[t_exit]->data[(rowN * cumul2hdiag[t_exit]->tda) + colN] += ctemp->data[(rowN * ctemp->tda) + colN];
-
 		}
 		person++;
 	}
@@ -932,7 +931,7 @@ void cox_reg_hes_init_accumul(llna_model* model, gsl_matrix* sum_zbar_events_cum
 	{
 		unsigned int t_exit = c->docs[person].t_exit;
 		int label = c->docs[person].label;
-		gsl_vector_view personrisk = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view personrisk = gsl_matrix_row(c->zbar_scaled, person);
 	
 		if (label > 0)
 		{
@@ -1017,19 +1016,22 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 	//Mittal, S., Madigan, D., Burd, R. S., & Suchard, M. a. (2013). High-dimensional, massive sample-size Cox proportional hazards regression for survival analysis. Biostatistics (Oxford, England), 1–15. doi:10.1093/biostatistics/kxt043
 	int i, iter;
 	int halving = 0;
-	int nvar = model->k - 1;
+	int nvar = model->k;
 	int nused = c->ndocs;
 	int ntimes = model->range_t;
 	double loglik = 0.0, newlk = 0.0;
 	gsl_vector* beta, * newbeta,  * gdiag, * cumulrisk, *cumul2risk; //* cumulxb,
 	gsl_matrix* sum_zbar, * hdiag, * cumulgdiag, * cumul2gdiag;
 	gsl_matrix** cumulhdiag, **cumul2hdiag;
-	gsl_vector* step = gsl_vector_calloc(nvar);
-	for (i = 0; i < nvar; i++)
-	{
-		//vset(newbeta, i, i == base_index ? 0.0 : vget(model->topic_beta, i));
-		vset(step, i, 1.0);
-	}
+//	gsl_vector* step = gsl_vector_calloc(nvar);
+
+	gsl_vector* scale = gsl_vector_calloc(model->k);
+
+//	for (i = 0; i < nvar; i++)
+//	{
+//		//vset(newbeta, i, i == base_index ? 0.0 : vget(model->topic_beta, i));
+//		vset(step, i, 1.0);
+//	}
 
 	sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 
@@ -1072,7 +1074,35 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 		hdiag_private[n] = gsl_matrix_calloc(nvar, nvar);
 	}
 
+	//Scaling so centred on zero
 
+	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
+	gsl_blas_dcopy(&topic_beta.vector, newbeta);
+	int k = model->k;
+	gsl_vector* ones = gsl_vector_alloc(nused);
+	gsl_vector_set_all(ones, 1.0);
+	gsl_blas_dgemv(CblasTrans, 1.0,  c->zbar, ones, 0.0, scale);
+	gsl_blas_dscal(1.0 / nused, scale);
+//#pragma omp parallel for reduction(+:scale[:k])
+//	for (int person = 0; person < nused; person++)
+//	{
+//		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+//		gsl_blas_daxpy(1.0, &zbar.vector, scale);
+//	}
+
+#pragma omp parallel for 
+	for (int person = 0; person < nused; person++)
+	{
+		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view zbar_scaled = gsl_matrix_row(c->zbar_scaled, person);
+		gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
+		gsl_blas_daxpy((-1.0), scale, &zbar_scaled.vector);
+		gsl_vector_div(&zbar.vector, scale); //zbar has to be positive as probability
+		vset(&zbar.vector, nvar - 1, 1.0);
+	}
+	
+	gsl_vector_div(newbeta, scale);	
+	gsl_blas_dcopy(newbeta, beta);
 
 	//Initial sum of zbar from patients with events at each time point (doesn't change with each iteration)
 #pragma omp parallel default(none) shared(c, model, sum_zbar,  ntimes, nvar) 
@@ -1087,10 +1117,6 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 		}
 		gsl_matrix_free(sum_zbar_private);
 	}
-
-	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
-	gsl_blas_dcopy(&topic_beta.vector, newbeta);
-	gsl_blas_dcopy(&topic_beta.vector, beta);
 
 	//Main iteration loop
 	for (iter = 1; iter <= PARAMS.surv_max_iter; iter++)
@@ -1232,22 +1258,22 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 			break;
 		}
 
-		if ((notfinite > 0 || newlk < loglik || newlk>=0 ) && iter > 1) {
+		if ((notfinite > 0 || newlk < loglik) && iter > 1) {
 			halving++;
 			gsl_blas_daxpy((double)halving, beta, newbeta);
 			gsl_blas_dscal(1.0 / ((double)halving + 1.0), newbeta);
-		//	printf("Backing up\t likelihood %f\n", newlk);
+			printf("Backing up\t likelihood %f\n", newlk);
 		}
 		else {
 			halving = 0;
 			loglik = newlk;
 			chsolve2(hdiag, nvar, gdiag);
-			for (int b = 0; b < nvar; b++)
-			{
-				if (fabs(vget(gdiag, b) > vget(step, b)))
-					vset(gdiag, b, vget(gdiag, b) > 0.0 ? vget(step, b) : -vget(step, b));
-				vset(step, b, ((2.0 * fabs(vget(gdiag, b))) > (vget(step, b) / 2.0)) ? 2.0 * fabs(vget(gdiag, b)) : (vget(step, b) / 2.0)); //Genkin, A., Lewis, D. D., & Madigan, D. (2007). Large-Scale Bayesian Logistic Regression for Text Categorization. Technometrics, 49(3), 291–304. doi:10.1198/004017007000000245
-			}
+			//for (int b = 0; b < nvar; b++)
+			//{
+			//	if (fabs(vget(gdiag, b) > vget(step, b)))
+			//		vset(gdiag, b, vget(gdiag, b) > 0.0 ? vget(step, b) : -vget(step, b));
+			//	vset(step, b, ((2.0 * fabs(vget(gdiag, b))) > (vget(step, b) / 2.0)) ? 2.0 * fabs(vget(gdiag, b)) : (vget(step, b) / 2.0)); //Genkin, A., Lewis, D. D., & Madigan, D. (2007). Large-Scale Bayesian Logistic Regression for Text Categorization. Technometrics, 49(3), 291–304. doi:10.1198/004017007000000245
+			//}
 
 			gsl_blas_dcopy(newbeta, beta); //Keep copy of old beta incase need to do halving
 			gsl_blas_daxpy(1.0, gdiag, newbeta);
@@ -1257,6 +1283,7 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 	}
 
 	*f = loglik;
+	gsl_vector_mul(newbeta, scale);
 	gsl_blas_dcopy(newbeta, &topic_beta.vector);
 	gsl_vector_free(beta);
 
