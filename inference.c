@@ -177,11 +177,15 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         gsl_vector_const_view scaledbeta = gsl_matrix_const_row(var->scaledbetamatrix, n);
         double temp = 0.0;
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+     //   temp += mod->intercept;
         //for (i = 0; i < k; i++)
          //   temp += vget(&nphi.vector, i) * exp(vget(scaledbeta,i));
         cbhz_prod *= temp;
-        if (doc->label>0) gsl_blas_ddot(&nphi.vector, &scaledbeta.vector, &lhood);
-
+        if (doc->label > 0)
+        {
+            gsl_blas_ddot(&nphi.vector, &scaledbeta.vector, &lhood);
+         //   lhood += mod->intercept;
+        }
         /*for (i = 0; i < k; i++)
         {
             double phi_ij = mget(var->phi, n, i);
@@ -199,9 +203,9 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         }*/
     }
 
-    lhood -= cbhz_prod * vget(mod->cbasehazard, doc->t_exit); // *exp(mod->intercept);
+    lhood -= cbhz_prod * vget(mod->cbasehazard, doc->t_exit) * exp(mod->intercept);
     if (doc->label > 0 && doc->t_exit < mod->range_t - 1)
-        lhood += safe_log(vget(mod->basehazard, doc->t_exit)); //+ mod->intercept;
+        lhood += safe_log(vget(mod->basehazard, doc->t_exit)) + mod->intercept;
 
     lhood_bnd(var, doc, mod);
     var->lhood += lhood;
@@ -278,6 +282,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
         gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
         gsl_vector_const_view cbhz_params = gsl_matrix_const_row(var->cbhz_params_matrix, n);
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+    //    temp += mod->intercept;
         assert(!isnan(temp) && !isinf(temp));
         cbhz_prod *= temp;
     }
@@ -315,6 +320,8 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
                 assert(!isnan(vget(&nlogphi.vector, i)));
             }
             gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
+         //   temp += mod->intercept;
+
             assert(!isnan(temp) && !isinf(temp));
             cbhz_prod *= temp;
             assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));

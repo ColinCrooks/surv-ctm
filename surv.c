@@ -1284,6 +1284,9 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 
 	*f = loglik;
 	gsl_vector_mul(newbeta, scale);
+	model->intercept = vget(newbeta, nvar - 1);
+	vset(newbeta, nvar - 1, 0.0);
+	printf("Intercept %f\t", model->intercept);
 	gsl_blas_dcopy(newbeta, &topic_beta.vector);
 	gsl_vector_free(beta);
 
