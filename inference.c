@@ -297,7 +297,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
             gsl_vector_view nphi = gsl_matrix_row(var->phi, n);
             gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
             gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
-            cbhz_prod /= exp(temp); //remove the contribution of word n
+            cbhz_prod /= temp; //remove the contribution of word n
             assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
 
             gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);

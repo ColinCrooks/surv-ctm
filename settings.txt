@@ -6,7 +6,7 @@ em convergence 1e-5
 var convergence 1e-6
 cg convergence 1e-6
 surv convergence 1e-6
-surv penalty 1e-1
+surv penalty 100
 lag 10
 run in 1
 covariance estimate mle

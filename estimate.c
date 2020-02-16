@@ -360,7 +360,7 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
         for (r = corpus->docs[d].t_enter; r <= corpus->docs[d].t_exit; r++)
             vset(xb, r, log_sum(vget(xb, r), xb2));
         if (corpus->docs[d].label > 0)
-            exb = log_sum(exb, exb2);
+            exb = log_sum(exb, exb2); //sum log(exp(xb)+exp(xb))
 
         //std::cout << " = " << exb << std::endl << " xb " << xb << " xb2 " << xb2;
 
@@ -635,7 +635,7 @@ void em(char* dataset, int k, char* start, char* dir)
     //        clock_t c2 = clock();
             gsl_vector_set_zero(model->topic_beta);
             cox_iter = cox_reg_fullefron(model, corpus, &f);
-            while(cox_iter <= 0)
+          /*  while(cox_iter <= 0)
             {
                 PARAMS.surv_penalty /= 10;
                 cox_iter = cox_reg(model, corpus, &f);
@@ -646,7 +646,7 @@ void em(char* dataset, int k, char* start, char* dir)
                 if (cox_iter >= PARAMS.surv_max_iter && PARAMS.surv_penalty > 1e-6) PARAMS.surv_penalty /= 10;
             }
             else if (cox_iter <=2 && PARAMS.surv_penalty<1e10)
-                PARAMS.surv_penalty *= 10;
+                PARAMS.surv_penalty *= 10; */
 
             printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
             cumulative_basehazard(corpus, model);

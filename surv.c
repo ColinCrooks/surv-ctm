@@ -321,43 +321,43 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 				cox_reg_accumulation(model, c, size, rank, bn, lastvar, dif, beta, cumulxb_private[rank], cumulrisk_private[rank], cumulgdiag_private[rank], cumulhdiag_private[rank],
 					cumul2risk_private[rank], cumulg2diag_private[rank], cumulh2diag_private[rank]);
 
-				for (int r = 0; r < ntimes; r++)
-				{
-#pragma omp atomic update
-					cumulxb->data[r] += cumulxb_private[rank]->data[r];
-#pragma omp atomic update
-					cumulrisk->data[r] += cumulrisk_private[rank]->data[r];
-#pragma omp atomic update
-					cumul2risk->data[r] += cumul2risk_private[rank]->data[r];
-
-#pragma omp atomic update
-					cumulgdiag->data[r] += cumulgdiag_private[rank]->data[r];
-#pragma omp atomic update
-					cumulhdiag->data[r] += cumulhdiag_private[rank]->data[r];
-#pragma omp atomic update
-					cumulg2diag->data[r] += cumulg2diag_private[rank]->data[r];
-#pragma omp atomic update
-					cumulh2diag->data[r] += cumulh2diag_private[rank]->data[r];
-
-				}
-//#pragma omp critical
+//				for (int r = 0; r < ntimes; r++)
 //				{
-//					gsl_blas_daxpy(1.0, cumulxb_private, cumulxb);
-//					gsl_blas_daxpy(1.0,  cumulrisk_private, cumulrisk);
-//					gsl_blas_daxpy(1.0, cumulgdiag_private, cumulgdiag);
-//					gsl_blas_daxpy(1.0,  cumulhdiag_private, cumulhdiag);
-//					gsl_blas_daxpy(1.0, cumul2risk_private, cumul2risk);
-//					gsl_blas_daxpy(1.0, cumulg2diag_private, cumulg2diag);
-//					gsl_blas_daxpy(1.0,  cumulh2diag_private, cumulh2diag);
-//				
+//#pragma omp atomic update
+//					cumulxb->data[r] += cumulxb_private[rank]->data[r];
+//#pragma omp atomic update
+//					cumulrisk->data[r] += cumulrisk_private[rank]->data[r];
+//#pragma omp atomic update
+//					cumul2risk->data[r] += cumul2risk_private[rank]->data[r];
+//
+//#pragma omp atomic update
+//					cumulgdiag->data[r] += cumulgdiag_private[rank]->data[r];
+//#pragma omp atomic update
+//					cumulhdiag->data[r] += cumulhdiag_private[rank]->data[r];
+//#pragma omp atomic update
+//					cumulg2diag->data[r] += cumulg2diag_private[rank]->data[r];
+//#pragma omp atomic update
+//					cumulh2diag->data[r] += cumulh2diag_private[rank]->data[r];
+//
 //				}
-//				gsl_vector_free(cumulxb_private);
-//				gsl_vector_free(cumulrisk_private);
-//				gsl_vector_free(cumulgdiag_private);
-//				gsl_vector_free(cumulhdiag_private);
-//				gsl_vector_free(cumul2risk_private);
-//				gsl_vector_free(cumulg2diag_private);
-//				gsl_vector_free(cumulh2diag_private);
+#pragma omp critical
+				{
+					gsl_blas_daxpy(1.0, cumulxb_private[rank], cumulxb);
+					gsl_blas_daxpy(1.0,  cumulrisk_private[rank], cumulrisk);
+					gsl_blas_daxpy(1.0, cumulgdiag_private[rank], cumulgdiag);
+					gsl_blas_daxpy(1.0,  cumulhdiag_private[rank], cumulhdiag);
+					gsl_blas_daxpy(1.0, cumul2risk_private[rank], cumul2risk);
+					gsl_blas_daxpy(1.0, cumulg2diag_private[rank], cumulg2diag);
+					gsl_blas_daxpy(1.0,  cumulh2diag_private[rank], cumulh2diag);
+				
+				}
+				//gsl_vector_free(cumulxb_private);
+				//gsl_vector_free(cumulrisk_private);
+				//gsl_vector_free(cumulgdiag_private);
+				//gsl_vector_free(cumulhdiag_private);
+				//gsl_vector_free(cumul2risk_private);
+				//gsl_vector_free(cumulg2diag_private);
+				//gsl_vector_free(cumulh2diag_private);
 			}
 
 		//	if (iter==1) printf("Parrallel beta %d (%f) \t time %d\t sumzbar %f \t cumulxb %f\t cumulrisk %f\t cumulgdiag %f \t cumulhdiag %f \t cumul2risk %f\t cumul2gdiag %f \t cumul2hdiag %f \n",	bn, vget(beta,bn) , ntimes, mget(sum_zbar,1,bn), vget(cumulxb,1), vget(cumulrisk,ntimes-1), vget(cumulgdiag, ntimes-1), vget(cumulhdiag, ntimes-1), vget(cumul2risk, 1), vget(cumulg2diag, 1), vget(cumulh2diag,1));
@@ -1024,6 +1024,8 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 	gsl_matrix* sum_zbar, * hdiag, * cumulgdiag, * cumul2gdiag;
 	gsl_matrix** cumulhdiag, **cumul2hdiag;
 //	gsl_vector* step = gsl_vector_calloc(nvar);
+	char backingup[12];
+	sprintf(backingup, "           ");
 
 	gsl_vector* scale = gsl_vector_calloc(model->k);
 
@@ -1235,10 +1237,10 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 //#Penalised ridge regression. Multiply penalty lambda = 1/r so that it is possible to remove penaltiy when lambda=0
 		double b2 = 0.0;
 		gsl_blas_ddot(newbeta, newbeta, &b2);
-		newlk -= b2 / (2 * PARAMS.surv_penalty);
+		newlk -= (b2 / (2 * PARAMS.surv_penalty)) + ((log(sqrt(PARAMS.surv_penalty)) + 0.91893853) * (nvar)) ;
 		gsl_blas_daxpy((-1.0) / PARAMS.surv_penalty, newbeta, gdiag);
 		gsl_matrix_add_constant(hdiag, 1.0 / PARAMS.surv_penalty);
-		newlk = -(log(sqrt(PARAMS.surv_penalty)) + 0.91893853) * ((double)nvar - 1);
+		
 		double flag;
 		flag = cholesky2(hdiag, nvar, PARAMS.surv_convergence);
 
@@ -1262,7 +1264,9 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 			halving++;
 			gsl_blas_daxpy((double)halving, beta, newbeta);
 			gsl_blas_dscal(1.0 / ((double)halving + 1.0), newbeta);
-			printf("Backing up\t likelihood %f\n", newlk);
+			sprintf(backingup, "(backed up)");
+			//printf("Backing up\t likelihood %f\n", newlk);
+			iter--;
 		}
 		else {
 			halving = 0;
@@ -1278,11 +1282,12 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 			gsl_blas_dcopy(newbeta, beta); //Keep copy of old beta incase need to do halving
 			gsl_blas_daxpy(1.0, gdiag, newbeta);
 			//	vprint(newbeta);
-			printf("Cox iter %d \t  likelihood %f\n", iter, newlk);
+			printf("Cox iter %d \t  likelihood %f %s\n", iter, newlk, backingup);
+			sprintf(backingup, "           ");
 		}
 	}
 
-	*f = loglik;
+	*f = loglik; //-(log(sqrt(PARAMS.surv_penalty)) + 0.91893853) * ((double)nvar - 1);;
 	gsl_vector_mul(newbeta, scale);
 	model->intercept = vget(newbeta, nvar - 1);
 	vset(newbeta, nvar - 1, 0.0);
