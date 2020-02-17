@@ -168,7 +168,7 @@ void cox_reg_distr_init(llna_model* model, gsl_matrix* sum_zbar_events_cumulativ
 	{
 		unsigned int t_exit = c->docs[person].t_exit;
 		int label = c->docs[person].label;
-		gsl_vector_view personrisk = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view personrisk = gsl_matrix_row(c->zbar_scaled, person);
 		double zb = 0.0;
 		gsl_blas_ddot(&personrisk.vector, model->topic_beta, &zb);
 		vset(c->zbeta, person, zb);
@@ -201,13 +201,13 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 		unsigned int t_enter = (unsigned int) c->docs[person].t_enter;
 		unsigned int t_exit = (unsigned int) c->docs[person].t_exit;
 
-		double xb = vget(c->zbeta, person) - (dif * mget(c->zbar, person, lastvar));
+		double xb = vget(c->zbeta, person) - (dif * mget(c->zbar_scaled, person, lastvar));
 		xb = xb > 22 ? 22 : xb;
 		xb = xb < -200 ? -200 : xb;
 		vset(c->zbeta, person, xb);
 
 		double expxb = exp(xb);
-		double zbar = mget(c->zbar, person, bn);
+		double zbar = mget(c->zbar_scaled, person, bn);
 		double z = expxb * zbar;
 		double zz = z * zbar;		
 		//printf("xb %f expxb %f z %f zz %f\n", xb, expxb, z, zz);
@@ -240,7 +240,25 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 int cox_reg_dist(llna_model* model, corpus* c, double* f)
 {
 //	const double PI = 3.141592653589793238463;
-	int iter = 0, nvar = model->k - 1, ntimes = model->range_t;
+	int iter = 0, nvar = model->k - 1, ntimes = model->range_t, nused = c->ndocs;
+	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
+	gsl_vector* scale = gsl_vector_calloc(nvar);
+	gsl_vector* beta = gsl_vector_alloc(nvar);
+	gsl_vector_memcpy(beta, &topic_beta.vector);
+#pragma omp parallel for 
+	for (int person = 0; person < nused; person++)
+	{
+		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view zbar_scaled = gsl_matrix_row(c->zbar_scaled, person);
+		gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
+		gsl_blas_daxpy((-1.0), scale, &zbar_scaled.vector);
+		gsl_vector_div(&zbar.vector, scale); //zbar has to be positive as probability
+		vset(&zbar.vector, nvar - 1, 1.0);
+	}
+
+	gsl_vector_div(beta, scale);
+
+
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 #pragma omp parallel default(none) shared(c, model, sum_zbar, ntimes, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
 	{
@@ -254,7 +272,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 		}
 		gsl_matrix_free(sum_zbar_private);
 	}
-	gsl_vector* beta = gsl_vector_calloc(nvar);
+
 	gsl_vector* cumulxb = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulrisk = gsl_vector_calloc(ntimes);
 	gsl_vector* cumulgdiag = gsl_vector_calloc(ntimes);
@@ -288,8 +306,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 
 
 	gsl_vector_set_all(step, 1.0);
-	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
-	gsl_blas_dcopy(&topic_beta.vector, beta);
+
 	double loglik = 0.0;
 	double dif = 0.0;
 	int lastvar = 0;
@@ -403,7 +420,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 				dif = dif > 0.0 ? vget(step, bn) : -vget(step, bn);
 			vset(step, bn, ((2.0 * fabs(dif)) > (vget(step, bn) / 2.0)) ? 2.0 * fabs(dif) : vget(step, bn) / 2.0); //Genkin, A., Lewis, D. D., & Madigan, D. (2007). Large-Scale Bayesian Logistic Regression for Text Categorization. Technometrics, 49(3), 291–304. doi:10.1198/004017007000000245
 			vset(beta, bn, (vget(beta, bn) - dif));		
-			newlk -= (vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty);
+			newlk -= ((vget(beta, bn) * vget(beta, bn)) / (2.0 * PARAMS.surv_penalty)) + log(sqrt(PARAMS.surv_penalty)) + 0.91893853;
 			lastvar = bn;
 		}
 		//newlk -= safe_log(sqrt(2 * PI * PARAMS.surv_penalty)) * ((double)nvar); //Constant for a particular lambda so unnecessary for convergence, however, when comparing models it is appropriate.(- 1.0 not needed as nvar already -1)
@@ -416,7 +433,10 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 
 
 	*f = loglik;
-
+	gsl_vector_mul(beta, scale);
+	model->intercept = vget(beta, nvar - 1);
+	vset(beta, nvar - 1, 0.0);
+	printf("Intercept %f\t", model->intercept);
 	gsl_vector_memcpy(&topic_beta.vector, beta);
 	gsl_matrix_free(sum_zbar);
 	gsl_vector_free(cumulrisk);
@@ -426,7 +446,7 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	gsl_vector_free(cumulg2diag);
 	gsl_vector_free(cumulh2diag);
 	gsl_vector_free(beta);
-
+	gsl_vector_free(scale);
 	for (int n = 0; n < threadn; n++)
 	{
 		gsl_vector_free(cumulxb_private[n]);

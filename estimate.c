@@ -170,6 +170,7 @@ void expectation(corpus* corpus, llna_model* model, llna_ss* ss,
  *
  */
 
+///Improves stability with small n and large p. Effect reduces with larger n
 void cov_shrinkage(gsl_matrix* mle, int n, gsl_matrix* result)
 {
     int p = (int) mle->size1, i;
@@ -633,7 +634,7 @@ void em(char* dataset, int k, char* start, char* dir)
     //        vprint(model->topic_beta);
     //        newC = cstat(corpus, model);
     //        clock_t c2 = clock();
-            gsl_vector_set_zero(model->topic_beta);
+     //       gsl_vector_set_zero(model->topic_beta);
             cox_iter = cox_reg_fullefron(model, corpus, &f);
           /*  while(cox_iter <= 0)
             {
