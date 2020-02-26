@@ -240,9 +240,15 @@ void cox_reg_accumulation(llna_model* model, corpus* c, int size, int rank, int 
 int cox_reg_dist(llna_model* model, corpus* c, double* f)
 {
 //	const double PI = 3.141592653589793238463;
-	int iter = 0, nvar = model->k - 1, ntimes = model->range_t, nused = c->ndocs;
+	int iter = 0, nvar = model->k, ntimes = model->range_t, nused = c->ndocs;
 	gsl_vector_view topic_beta = gsl_vector_subvector(model->topic_beta, 0, nvar);
 	gsl_vector* scale = gsl_vector_calloc(nvar);
+
+	gsl_vector* ones = gsl_vector_alloc(nused);
+	gsl_vector_set_all(ones, 1.0);
+	gsl_blas_dgemv(CblasTrans, 1.0, c->zbar, ones, 0.0, scale);
+	gsl_blas_dscal(1.0 / nused, scale);
+
 	gsl_vector* beta = gsl_vector_alloc(nvar);
 	gsl_vector_memcpy(beta, &topic_beta.vector);
 #pragma omp parallel for 
@@ -257,6 +263,26 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	}
 
 	gsl_vector_div(beta, scale);
+
+
+
+	//#pragma omp parallel for reduction(+:scale[:k])
+	//	for (int person = 0; person < nused; person++)
+	//	{
+	//		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+	//		gsl_blas_daxpy(1.0, &zbar.vector, scale);
+	//	}
+
+#pragma omp parallel for 
+	for (int person = 0; person < nused; person++)
+	{
+		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
+		gsl_vector_view zbar_scaled = gsl_matrix_row(c->zbar_scaled, person);
+		gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
+		gsl_blas_daxpy((-1.0), scale, &zbar_scaled.vector);
+		gsl_vector_div(&zbar.vector, scale); //zbar has to be positive as probability
+		vset(&zbar.vector, nvar - 1, 1.0);
+	}
 
 
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);

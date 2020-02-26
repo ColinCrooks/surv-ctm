@@ -502,7 +502,7 @@ void em(char* dataset, int k, char* start, char* dir)
     llna_ss* ss;
     time_t t1,t2;
     double avg_niter, converged_pct;
-    gsl_matrix *corpus_lambda, *corpus_nu, *corpus_phi_sum;
+    gsl_matrix *corpus_lambda, *corpus_nu;
 
     // read the data and make the directory
 
@@ -558,7 +558,7 @@ void em(char* dataset, int k, char* start, char* dir)
     //Working memory allocation done once at start - speed over memory efficiency
     corpus_lambda = gsl_matrix_alloc(corpus->ndocs, model->k);
     corpus_nu = gsl_matrix_alloc(corpus->ndocs, model->k);
-    corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
+    //corpus_phi_sum = gsl_matrix_alloc(corpus->ndocs, model->k);
     
 
 
@@ -613,14 +613,7 @@ void em(char* dataset, int k, char* start, char* dir)
 
  //       mprint(corpus->zbar);
 
-     //  cox_iter = cox_reg_dist(model, corpus, &f);
-     //   cox_iter = cox_reg(model, corpus, &f);
-     /*   while (cox_iter <= 0)
-        {
-            PARAMS.surv_penalty /= 10;
-           cox_iter = cox_reg_dist(model, corpus, &f);
-       //     cox_iter = cox_reg(model, corpus, &f);
-        }*/
+
 
    /*     if (cox_iter > PARAMS.surv_max_iter && PARAMS.surv_penalty>1e-6)
             PARAMS.surv_penalty /= 10;
@@ -635,7 +628,7 @@ void em(char* dataset, int k, char* start, char* dir)
     //        newC = cstat(corpus, model);
     //        clock_t c2 = clock();
      //       gsl_vector_set_zero(model->topic_beta);
-            cox_iter = cox_reg_fullefron(model, corpus, &f);
+     //       cox_iter = cox_reg_fullefron(model, corpus, &f);
           /*  while(cox_iter <= 0)
             {
                 PARAMS.surv_penalty /= 10;
@@ -649,10 +642,6 @@ void em(char* dataset, int k, char* start, char* dir)
             else if (cox_iter <=2 && PARAMS.surv_penalty<1e10)
                 PARAMS.surv_penalty *= 10; */
 
-            printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
-            cumulative_basehazard(corpus, model);
-            vprint(model->topic_beta);
-            newC = cstat(corpus, model);
         //    clock_t c3 = clock();
 
        //     printf("HES %d, DIST %d", c2 - c1, c3 - c2);
@@ -666,13 +655,30 @@ void em(char* dataset, int k, char* start, char* dir)
         }
         else
         {
-
-            printf("Maximisation....\n");
+           if (model->iteration >= PARAMS.runin - 1)
+		   {
+			   cox_iter = cox_reg_dist(model, corpus, &f);
+        //       cox_iter = cox_reg_fullefron(model, corpus, &f);
+		 //  cox_iter = cox_reg(model, corpus, &f);
+				while (cox_iter <= 0)
+				{
+                    printf("Cox Model not converging, increasing beta prior precision");
+					PARAMS.surv_penalty /= 10;
+					cox_iter = cox_reg_dist(model, corpus, &f);
+		  //      	cox_iter = cox_reg(model, corpus, &f);
+				}
+				printf("Cox liklihood %5.5e, penalty %1.0e, in %d iterations \t C statistic = %f\n", f, 	PARAMS.surv_penalty, cox_iter, cstat(corpus, model));
+				cumulative_basehazard(corpus, model);
+				vprint(model->topic_beta);
+		   }
             reset_var = 1;
             maximization(model, ss);
             lhood_old = lhood;
             model->iteration++;
         }
+
+
+		newC = cstat(corpus, model);
 
 
         time(&t1);
@@ -701,8 +707,6 @@ void em(char* dataset, int k, char* start, char* dir)
     fclose(lhood_fptr);
     gsl_matrix_free(corpus_lambda);
     gsl_matrix_free(corpus_nu);
-    gsl_matrix_free(corpus_phi_sum);
- 
     return;
 }
 
@@ -754,12 +758,15 @@ void inference(char* dataset, char* model_root, char* out)
     gsl_matrix * phi_sums = gsl_matrix_calloc(corpus->ndocs, model->k);
     corpus->zbar_scaled = gsl_matrix_calloc(corpus->ndocs, model->k);
 
+	int threadn = omp_get_num_procs();
+    llna_var_param** var = malloc(sizeof(llna_var_param*) * threadn);
+    for (int n = 0; n < threadn; n++)
+        var[n] = new_llna_var_param(corpus->nterms, model->k);
 
     // approximate inference
-   // init_temp_vectors(model->k-1); // !!! hacky
     sprintf(fname, "%s-word-assgn.dat", out);
     FILE* word_assignment_file = fopen(fname, "w");
-#pragma omp parallel default(none) shared(corpus, model, corpus_lambda,  corpus_nu, phi_sums, lhood, PARAMS, word_assignment_file) /* for (i = 0; i < corpus->ndocs; i++) */
+#pragma omp parallel default(none) shared(corpus, model, corpus_lambda, var, corpus_nu, phi_sums, lhood, PARAMS, word_assignment_file) /* for (i = 0; i < corpus->ndocs; i++) */
     {
         int i, j;
         int size = omp_get_num_threads(); // get total number of processes
@@ -767,23 +774,23 @@ void inference(char* dataset, char* model_root, char* out)
         for (i = (rank * corpus->ndocs / size); i < (rank + 1) * corpus->ndocs / size; i++)
         {
             doc doc = corpus->docs[i];
-            llna_var_param* var = new_llna_var_param(doc.nterms, model->k);
-            init_var_unif(var, &doc, model);
+            init_var_unif(var[rank], &doc, model);
 
-            vset(lhood, i, var_inference(var, &doc, model));
-            gsl_matrix_set_row(corpus_lambda, i, var->lambda);
-            gsl_matrix_set_row(corpus_nu, i, var->nu);
+            vset(lhood, i, var_inference(var[rank], &doc, model));
+            gsl_matrix_set_row(corpus_lambda, i, var[rank]->lambda);
+            gsl_matrix_set_row(corpus_nu, i, var[rank]->nu);
             gsl_vector curr_row = gsl_matrix_row(phi_sums, i).vector;
-            col_sum(var->phi, &curr_row);
+            gsl_matrix_view phi = gsl_matrix_submatrix(var[rank]->phi, 0, 0, doc.nterms, model->k);
+            col_sum(&phi.matrix, &curr_row);
             // Allocated topics for survival supervision
             for (int n = 0; n < doc.nterms; n++)
                 for (j = 0; j < model->k; j++)
-                    minc(corpus->zbar, i, j, mget(var->phi, n, j) * (double)doc.count[n] / (double)doc.total);
+                    minc(corpus->zbar, i, j, mget(var[rank]->phi, n, j) * (double)doc.count[n] / (double)doc.total);
 #pragma omp critical
             write_word_assignment(word_assignment_file, &doc, corpus->zbar);
 
         //    printf("document %05d, niter = %05d\n", i, var->niter);
-            free_llna_var_param(var);
+            
         }
     }
     cumulative_basehazard(corpus, model);
@@ -800,6 +807,9 @@ void inference(char* dataset, char* model_root, char* out)
     printf_matrix(fname, phi_sums);
     sprintf(fname, "%s/inf-zbar.dat", out);
     printf_matrix(fname, corpus->zbar);
+    for (int n = 0; n < threadn; n++)
+        free_llna_var_param(var[n]);
+	free(var);
 
 }
 
