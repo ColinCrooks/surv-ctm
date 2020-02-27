@@ -209,7 +209,7 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
 
     lhood_bnd(var, doc, mod);
     var->lhood += lhood;
-    assert(!isnan(var->lhood));
+ //   assert(!isnan(var->lhood));
 }
 
 
@@ -266,7 +266,7 @@ void opt_phi(llna_var_param * var, doc * doc, llna_model * mod)
         for (i = 0; i < K; i++)
         {
             vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
-            assert(!isnan(vget(&nphi.vector,i)));
+//            assert(!isnan(vget(&nphi.vector,i)));
         }
     }
 }
@@ -276,7 +276,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
     int i, n, K = mod->k;
     double log_sum_n = 0, temp = 0;
     double label = (double) doc->label;
-    double cbhz_prod = 1.0; // vget(mod->cbasehazard, doc->t_exit); Doesn't effect phi convergence on a document level
+    double cbhz_prod = vget(mod->cbasehazard, doc->t_exit); //Doesn't effect phi convergence on a document level
     for (n = 0; n < doc->nterms; n++)
     {
         gsl_vector_const_view nphi = gsl_matrix_const_row(var->phi, n);
@@ -284,7 +284,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
         gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
     //    temp += mod->intercept;
         assert(!isnan(temp) && !isinf(temp));
-        cbhz_prod *= temp;
+ //       cbhz_prod *= temp;
     }
 
     //double dif = 0.0;
@@ -298,7 +298,7 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
             gsl_vector_view nlogphi = gsl_matrix_row(var->log_phi, n);
             gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
             cbhz_prod /= temp; //remove the contribution of word n
-            assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
+ //           assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
 
             gsl_vector_const_view nlogomega = gsl_matrix_const_column(mod->log_omega, doc->word[n]);
             gsl_blas_dcopy(&nlogomega.vector, &nlogphi.vector);
@@ -310,21 +310,21 @@ void opt_phi_surv(llna_var_param* var, doc* doc, llna_model* mod)
             for (i = 1; i < K; i++)
             {
                 log_sum_n = log_sum(log_sum_n, vget(&nlogphi.vector, i));
-                assert(!isnan(log_sum_n) && !isinf(log_sum_n));
+ //               assert(!isnan(log_sum_n) && !isinf(log_sum_n));
             }
             gsl_vector_add_constant(&nlogphi.vector, -log_sum_n);
             for (i = 0; i < K; i++)
             {
                 //vset(var->log_phi, n, i, mget(var->log_phi, n, i) - log_sum_n);
                 vset(&nphi.vector, i, exp(vget(&nlogphi.vector, i)));
-                assert(!isnan(vget(&nlogphi.vector, i)));
+ //               assert(!isnan(vget(&nlogphi.vector, i)));
             }
             gsl_blas_ddot(&nphi.vector, &cbhz_params.vector, &temp);
          //   temp += mod->intercept;
 
-            assert(!isnan(temp) && !isinf(temp));
+//            assert(!isnan(temp) && !isinf(temp));
             cbhz_prod *= temp;
-            assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
+//            assert(!isnan(cbhz_prod) && !isinf(cbhz_prod));
         }
     
 }
@@ -404,7 +404,7 @@ double f_lambda(const gsl_vector * p, void * params)
     // compute lambda^T \sum phi
     //gsl_blas_ddot(p,((bundle *) params)->sum_phi, &term1);
     gsl_blas_ddot(p, &sum_phi.vector, &term1);
-    assert(!isnan(term1));
+//    assert(!isnan(term1));
 
     // compute lambda - mu (= temp1)
     gsl_blas_dcopy(p, var->tempvector[1]);
@@ -414,7 +414,7 @@ double f_lambda(const gsl_vector * p, void * params)
     // gsl_blas_dgemv(CblasNoTrans, 1, mod->inv_cov, temp[1], 0, temp[2]);
     gsl_blas_ddot(var->tempvector[2], var->tempvector[1], &term2);
     term2 = - 0.5 * term2;
-    assert(!isnan(term2));
+//    assert(!isnan(term2));
     // last term
     term3 = 0;
     gsl_vector_const_view nu = gsl_vector_const_subvector(var->nu, 0, (size_t)(mod->k) - 1);
@@ -422,9 +422,9 @@ double f_lambda(const gsl_vector * p, void * params)
     gsl_blas_daxpy(0.5, &nu.vector, var->tempvector[3]);
     for (i = 0; i < (mod->k) - 1; i++)
          term3 += exp(vget(var->tempvector[3], i));
-    assert(!isnan(term3));
+//    assert(!isnan(term3));
     term3 = -((1.0 / var->zeta) * term3 - 1.0 + safe_log(var->zeta)) * (double)doc->total;
-    assert(!isnan(term3));
+ //   assert(!isnan(term3));
     // negate for minimization
     return(-(term1+term2+term3));
 }
@@ -521,7 +521,7 @@ int opt_lambda(llna_var_param * var, doc * doc, llna_model * mod)
     for (i = 0; i < mod->k - 1; i++)
     {
         vset(var->lambda, i, vget(s->x, i));
-        assert(!isnan(vget(var->lambda,i)));
+ //       assert(!isnan(vget(var->lambda,i)));
     }
     vset(var->lambda, mod->k - 1, 0);
 
@@ -621,7 +621,7 @@ void opt_nu_i(int i, llna_var_param * var, llna_model * mod, doc * d)
     }
     while (fabs(df) > NEWTON_THRESH);
     vset(var->nu, i, exp(log_nu_i));
-    assert(!isnan(vget(var->nu,i)));
+ //   assert(!isnan(vget(var->nu,i)));
 }
 
 /**
@@ -658,8 +658,8 @@ void init_var_unif(llna_var_param * var, doc * doc, llna_model * mod)
         for (int i = 0; i < mod->k; i++)
         {
             vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
-#pragma omp critical
-            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
+//#pragma omp critical
+//            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
         }
     }
 }
@@ -682,8 +682,8 @@ void init_var(llna_var_param * var, doc * doc, llna_model * mod, gsl_vector *lam
         for (int i = 0; i < mod->k; i++)
         {
             vset(&cbhz_params.vector, i, exp(vget(&scaledbeta.vector, i)));
-#pragma omp critical
-            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
+//#pragma omp critical
+//            assert(!isnan(vget(&cbhz_params.vector, i) && !isinf(vget(&cbhz_params.vector, i))));
 
         }
     }

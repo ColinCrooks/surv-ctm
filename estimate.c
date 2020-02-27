@@ -650,15 +650,24 @@ void em(char* dataset, int k, char* start, char* dir)
             reset_var = 0; //retry using global lambda and mu for starting point for variational inference parameters if didn't converge from random start
         //    if (PARAMS.surv_penalty>1e-6) PARAMS.surv_penalty /= 10; //reduce magnitude of beta coefficients for next calculation to shrink extreme allocations
             if (PARAMS.var_max_iter > 0) PARAMS.var_max_iter += 10; // provide longer for convergence
-            else model->var_convergence /= 10;  
+            else if (model->var_convergence >1e-8) model->var_convergence /= 10;
+            else
+            {
+                printf("Flat region so unable to progress\n");
+                cox_iter = cox_reg_fullefron(model, corpus, &f);
+                cumulative_basehazard(corpus, model);
+                vprint(model->topic_beta);
+                maximization(model, ss);
+                break;
+            }
             //Don't do maximisation/cox whilst heading in wrong direction
         }
         else
         {
            if (model->iteration >= PARAMS.runin - 1)
 		   {
-			   cox_iter = cox_reg_dist(model, corpus, &f);
-        //       cox_iter = cox_reg_fullefron(model, corpus, &f);
+		//	   cox_iter = cox_reg_dist(model, corpus, &f);
+               cox_iter = cox_reg_fullefron(model, corpus, &f);
 		 //  cox_iter = cox_reg(model, corpus, &f);
 				while (cox_iter <= 0)
 				{

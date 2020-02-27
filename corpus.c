@@ -141,7 +141,7 @@ corpus* read_data(const char* data_filename)
     mset(c->group, 0, 0, 0);
     mset(c->group, 0, 1, 0);
     //mset(c->group, 0, 2, c->docs[(int)step].t_exit);
-
+    printf("Total time updates %d ", ne);
     printf("doc %d ", 0);
     printf("exit %f ", mget(c->group, 0, 2));
     printf("enter %f \n", mget(c->group, 0, 1));
@@ -155,7 +155,7 @@ corpus* read_data(const char* data_filename)
     while (nupdates < nupdatestep && endindex < nd)
     {
         endindex++;
-        nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_exit + 1;
+        nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_enter + 1;
     }
     mset(c->group, 0, 2, c->docs[endindex].t_exit);
     index = endindex;
@@ -165,7 +165,7 @@ corpus* read_data(const char* data_filename)
         while (nupdates < nupdatestep && endindex < nd)
         {
             endindex++;
-            nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_exit + 1;
+            nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_enter + 1;
         }
 
       //  int endindex = (int)((double)((r + 1) * step));
