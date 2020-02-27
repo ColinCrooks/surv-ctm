@@ -264,27 +264,6 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 
 	gsl_vector_div(beta, scale);
 
-
-
-	//#pragma omp parallel for reduction(+:scale[:k])
-	//	for (int person = 0; person < nused; person++)
-	//	{
-	//		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
-	//		gsl_blas_daxpy(1.0, &zbar.vector, scale);
-	//	}
-
-#pragma omp parallel for 
-	for (int person = 0; person < nused; person++)
-	{
-		gsl_vector_view zbar = gsl_matrix_row(c->zbar, person);
-		gsl_vector_view zbar_scaled = gsl_matrix_row(c->zbar_scaled, person);
-		gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
-		gsl_blas_daxpy((-1.0), scale, &zbar_scaled.vector);
-		gsl_vector_div(&zbar.vector, scale); //zbar has to be positive as probability
-		vset(&zbar.vector, nvar - 1, 1.0);
-	}
-
-
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 #pragma omp parallel default(none) shared(c, model, sum_zbar, ntimes, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
 	{
@@ -946,8 +925,11 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 			gsl_blas_daxpy(1.0, atemp, &arow.vector);
 #pragma omp simd
 			for (unsigned int rowN = 0; rowN < nvar; rowN++)
+			{
+#pragma omp simd
 				for (unsigned int colN = rowN; colN < nvar; colN++)
 					cumulhdiag[r]->data[(rowN * cumulhdiag[r]->tda) + colN] += ctemp->data[(rowN * ctemp->tda) + colN];
+			}
 		}
 		
 		if (c->docs[person].label > 0 && c->docs[person].t_exit < end_cumultime)
@@ -958,8 +940,11 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 			gsl_blas_daxpy(1.0, atemp, &arow.vector);
 #pragma omp simd
 			for (unsigned int rowN = 0; rowN < nvar; rowN++)
+			{
+#pragma omp simd
 				for (unsigned int colN = rowN; colN < nvar; colN++)
 					cumul2hdiag[t_exit]->data[(rowN * cumul2hdiag[t_exit]->tda) + colN] += ctemp->data[(rowN * ctemp->tda) + colN];
+			}
 		}
 		person++;
 	}

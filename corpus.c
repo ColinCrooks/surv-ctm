@@ -35,7 +35,7 @@
 corpus* read_data(const char* data_filename)
 {
     FILE *fileptr;
-    int label, t_enter, t_exit, length,  count, word, inc, n, nd, nw, corpus_total = 0, min_t = 0, max_t = 0, d;
+    int label, t_enter, t_exit, length,  count, word, inc, n, nd, nw, ne, corpus_total = 0, min_t = 0, max_t = 0, d;
     corpus* c;
    // int ngroups = omp_get_num_procs();
     gsl_rng* r = gsl_rng_alloc(gsl_rng_taus);
@@ -45,7 +45,7 @@ corpus* read_data(const char* data_filename)
     c = malloc(sizeof(corpus));
     fileptr = fopen(data_filename, "r");
     if (fileptr == NULL) return NULL;
-    nd = 0; nw = 0;
+    nd = 0; nw = 0, ne = 0;
     c->docs = malloc(sizeof(doc) * 1);
     if (c->docs != NULL)
     {
@@ -73,6 +73,7 @@ corpus* read_data(const char* data_filename)
                 c->docs[nd].t_exit = t_exit;
                 c->docs[nd].nterms = length;
                 c->docs[nd].total = 0;
+                ne += t_exit - t_enter + 1;
                 if (length > 0)
                 {
                     c->docs[nd].word = malloc(sizeof(int) * length);
@@ -130,27 +131,50 @@ corpus* read_data(const char* data_filename)
             c->docs[d].t_exit -= min_t;
         }
     }
-    int size = 20; //omp_get_num_procs();
+
+
+    //Split the population (Assumed to be sorted in time) into groups with even numbers of event updates
+    int size = omp_get_num_procs();
     double step = (double)nd / (double)size;
 
     c->group = gsl_matrix_calloc(size, 3);
     mset(c->group, 0, 0, 0);
     mset(c->group, 0, 1, 0);
-    mset(c->group, 0, 2, c->docs[(int)step].t_exit);
+    //mset(c->group, 0, 2, c->docs[(int)step].t_exit);
 
     printf("doc %d ", 0);
     printf("exit %f ", mget(c->group, 0, 2));
     printf("enter %f \n", mget(c->group, 0, 1));
 
-    int index = (int)((double)(step));
+    int nupdatestep = (int) (double)ne / (double)size;
+    int nupdates = c->docs[0].t_exit - c->docs[0].t_exit + 1;
+    
+
+    int index = 0;
+    int endindex = 0; // (int)((double)(step));
+    while (nupdates < nupdatestep && endindex < nd)
+    {
+        endindex++;
+        nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_exit + 1;
+    }
+    mset(c->group, 0, 2, c->docs[endindex].t_exit);
+    index = endindex;
     for (int r = 1; r < size; r++)
     {
-        int endindex = (int)((double)((r + 1) * step));
+        nupdates = 0;
+        while (nupdates < nupdatestep && endindex < nd)
+        {
+            endindex++;
+            nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_exit + 1;
+        }
+
+      //  int endindex = (int)((double)((r + 1) * step));
         mset(c->group, r, 0, index);
         mset(c->group, r, 1, mget(c->group, r - 1, 2));
         mset(c->group, r, 2, c->docs[endindex].t_exit);
         if (mget(c->group, r, 2) <= mget(c->group, r - 1, 2))
-            while (mget(c->group, r, 2) >= c->docs[endindex].t_exit && endindex + 1 < nd) endindex++;
+            while (mget(c->group, r, 2) >= c->docs[endindex].t_exit && endindex + 1 < nd)
+                endindex++;
 
        // mset(c->group, r, 0, index);
       //  mset(c->group, r, 1, mget(c->group, r - 1, 2));
