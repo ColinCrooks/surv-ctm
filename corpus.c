@@ -46,7 +46,7 @@ corpus* read_data(const char* data_filename)
     fileptr = fopen(data_filename, "r");
     if (fileptr == NULL) return NULL;
     nd = 0; nw = 0, ne = 0;
-    c->docs = malloc(sizeof(doc) * 1);
+        c->docs = malloc(sizeof(doc) * 1);
     if (c->docs != NULL)
     {
         int pos = 0;
@@ -132,119 +132,52 @@ corpus* read_data(const char* data_filename)
         }
     }
 
-
     //Split the population (Assumed to be sorted in time) into groups with even numbers of event updates
-    int size = omp_get_num_procs();
-    double step = (double)nd / (double)size;
+    //Use same code as in accumlation to count updates efficiently
+     int size = omp_get_num_procs() > max_t-min_t +1 ? max_t - min_t + 1 : omp_get_num_procs();
+     int step = (int)floor((double)ne / (double)size);
+     gsl_vector* nupdates = gsl_vector_calloc(ne);
+     for (int person = 0; person < nd; person++)
+                for (int t = c->docs[person].t_enter; t <= c->docs[person].t_exit; t++)
+                    vinc(nupdates, t, 1.0);
+
 
     c->group = gsl_matrix_calloc(size, 3);
     mset(c->group, 0, 0, 0);
     mset(c->group, 0, 1, 0);
-    //mset(c->group, 0, 2, c->docs[(int)step].t_exit);
-    printf("Total time updates %d ", ne);
+    int cumulupdates = 0;
+    int group = 1;
+    for (int t = 0; t < max_t - min_t + 1; t++)
+    {
+        cumulupdates += (int)vget(nupdates, t);
+        if (cumulupdates > step)
+        {
+            mset(c->group, group - 1, 2, t);
+            mset(c->group, group, 1, t);
+            cumulupdates = 0;
+            group++;
+        }
+    }
+
+    mset(c->group, size - 1, 2, max_t - min_t + 1);
+    printf("Total time updates %d\n", ne);
     printf("doc %d ", 0);
-    printf("exit %f ", mget(c->group, 0, 2));
-    printf("enter %f \n", mget(c->group, 0, 1));
+    printf("enter %f", mget(c->group, 0, 1));
+    printf("exit %f  \n", mget(c->group, 0, 2));
 
-    int nupdatestep = (int) (double)ne / (double)size;
-    int nupdates = c->docs[0].t_exit - c->docs[0].t_exit + 1;
-    
-
-    int index = 0;
-    int endindex = 0; // (int)((double)(step));
-    while (nupdates < nupdatestep && endindex < nd)
+    int index = 1;
+    for (int t = 1; t < size; t++)
     {
-        endindex++;
-        nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_enter + 1;
-    }
-    mset(c->group, 0, 2, c->docs[endindex].t_exit);
-    index = endindex;
-    for (int r = 1; r < size; r++)
-    {
-        nupdates = 0;
-        while (nupdates < nupdatestep && endindex < nd)
-        {
-            endindex++;
-            nupdates += c->docs[endindex].t_exit - c->docs[endindex].t_enter + 1;
-        }
-
-      //  int endindex = (int)((double)((r + 1) * step));
-        mset(c->group, r, 0, index);
-        mset(c->group, r, 1, mget(c->group, r - 1, 2));
-        mset(c->group, r, 2, c->docs[endindex].t_exit);
-        if (mget(c->group, r, 2) <= mget(c->group, r - 1, 2))
-            while (mget(c->group, r, 2) >= c->docs[endindex].t_exit && endindex + 1 < nd)
-                endindex++;
-
-       // mset(c->group, r, 0, index);
-      //  mset(c->group, r, 1, mget(c->group, r - 1, 2));
-        mset(c->group, r, 2, c->docs[endindex].t_exit);
+        while ((c->docs[index].t_exit < mget(c->group, t, 1) && index + 1 < nd) || index == mget(c->group, t - 1, 0)) index++;
+        mset(c->group, t, 0, index);
         printf("doc %d ", index);
-        printf("exit %f ", mget(c->group, r, 2));
-        printf("enter %f \n", mget(c->group, r, 1));
-        index = endindex;
+        printf("enter %f ", mget(c->group, t, 1));
+        printf("exit %f \n", mget(c->group, t, 2));
     }
-    mset(c->group, size - 1, 2, c->docs[nd - 1].t_exit + 1);
-    printf("exit %f \n", mget(c->group, size - 1, 2));
-    /*
-    //Allocate each person to a random subset for distributed cox regression
-    gsl_vector* random = gsl_vector_calloc(nd);
-    gsl_vector* permuted = gsl_vector_calloc(nd);
-    for (d = 0; d < nd; d++)
-    {
-        vset(random, d, gsl_rng_uniform(r));
-        vset(permuted, d, d);
-    }
-    gsl_sort_vector2(random, permuted);
-    int group_length = (int) ceil( (double) nd / (double) ngroups);
-    c->group = gsl_matrix_calloc(group_length, ngroups);
-    gsl_matrix_set_all(c->group,nd);
-    gsl_vector* temp = gsl_vector_calloc(group_length);
-    int cumulative = 0;
-    for (int g = 0; g < ngroups; g++)
-    {
-        for (d = 0; d < group_length; d++)
-        {
-            if (cumulative >= nd)
-            {
-                vset(temp, d, nd);
-            }
-            else
-            {
-                vset(temp, d, vget(permuted, cumulative));
-                cumulative++;
-            }
-        }
-        gsl_sort_vector(temp);
-        gsl_matrix_set_col(c->group, g, temp);
-        for (d = 0; d < group_length; d++)
-            if (mget(c->group,d,g) >= nd) mset(c->group, d, g, -1);
-    }
-    gsl_rng_free(r);
-    gsl_vector_free(temp);
-    gsl_vector_free(random);
-    gsl_vector_free(permuted);
-    */
-    //set counts of events for each time point within each group for efficient cox regression
-    /*c->mark = gsl_matrix_calloc(group_length, ngroups);
-    gsl_vector* gevents = gsl_vector_calloc(ngroups);
 
-    for (d = group_length - 1; d >= 0; d--)
-    {
-        for (int g = 0; g < ngroups; g++)
-        {
-            int gd = (int) mget(c->group, g, d);
-            int gprevd = 0;
-            if(d != 0) gprevd = (int) mget(c->group, g, d - 1);
-            if (d == 0 || c->docs[gd].t_exit != c->docs[gprevd].t_exit)
-            {
-                mset(c->mark, d, g, vget(gevents, g) + c->docs[gd].label); //Last patient at this time point - store number of deaths
-                vset(gevents, g, 0);
-            }
-            else if (c->docs[gd].t_exit == c->docs[gprevd].t_exit)
-                vinc(gevents, g, c->docs[gd].label);
-        }
-    }*/
+    printf("exit %f \n", mget(c->group, size - 1, 2));
+
+    gsl_vector_free(nupdates);
 
     count = 0;
     c->cmark = gsl_vector_calloc(nd); //corpus level event counts

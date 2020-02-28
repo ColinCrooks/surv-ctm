@@ -917,7 +917,6 @@ void cox_reg_accumul_fullefron(llna_model* model, corpus* c, int size, int rank,
 		// X*exp(xb)
 		gsl_blas_daxpy(risk, &z.vector, atemp);
 		gsl_blas_dsyr(CblasUpper, risk, &z.vector, ctemp);
-#pragma omp simd
 		for (int r = t_enter; r <= t_exit; r++)
 		{
 			vinc(cumulrisk, r, risk);

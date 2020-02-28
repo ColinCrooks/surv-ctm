@@ -1,4 +1,4 @@
-em max iter 20
+em max iter 2
 var max iter -1
 cg max iter 1000
 surv max iter 1000
