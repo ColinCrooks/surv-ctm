@@ -1,0 +1,47 @@
+em max iter 20
+var max iter -1
+cg max iter 1000
+surv max iter 1000
+em convergence 0.000100
+var convergence 0.000001
+cg convergence 0.000001
+surv convergence 0.000001
+penalty convergence 2.000000
+lag 10
+run in 1
+shrinkage? 0
+reading data from E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesdemo_testredo.out
+Total time updates 554953337
+doc 0 enter 0.000000exit 78.000000  
+doc 5529 enter 78.000000 exit 158.000000 
+doc 10917 enter 158.000000 exit 239.000000 
+doc 16333 enter 239.000000 exit 322.000000 
+doc 21902 enter 322.000000 exit 406.000000 
+doc 27837 enter 406.000000 exit 492.000000 
+doc 32691 enter 492.000000 exit 579.000000 
+doc 37867 enter 579.000000 exit 667.000000 
+doc 43014 enter 667.000000 exit 757.000000 
+doc 47788 enter 757.000000 exit 848.000000 
+doc 52405 enter 848.000000 exit 940.000000 
+doc 56420 enter 940.000000 exit 1034.000000 
+doc 60890 enter 1034.000000 exit 1129.000000 
+doc 65213 enter 1129.000000 exit 1226.000000 
+doc 70293 enter 1226.000000 exit 1324.000000 
+doc 74348 enter 1324.000000 exit 1424.000000 
+doc 78642 enter 1424.000000 exit 1525.000000 
+doc 82874 enter 1525.000000 exit 1628.000000 
+doc 87261 enter 1628.000000 exit 1732.000000 
+doc 91337 enter 1732.000000 exit 1827.000000 
+exit 1827.000000 
+number of docs    : 356482
+number of terms   : 71141
+total             : 20614037
+Earliest entry: 0, and latest exit: 1826
+reading params from E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\CCD/1/final-param.txt
+80 topics, 71141 terms
+reading gaussian
+reading topics
+reading topic coefficients
+reading cumulative baseline hazard
+
+ C statistic = 0.804

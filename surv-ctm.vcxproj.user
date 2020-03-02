@@ -13,7 +13,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LocalDebuggerCommandArguments> est E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesdemo_trainredo.out 20 rand E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\efron20\ settings.txt</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>  inf E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesdemo_testredo.out E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\nocscaleCCDe3/final E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\nocscaleCCDe3/val settings.txt  &gt; nocscaleCCDe3val.txt</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>

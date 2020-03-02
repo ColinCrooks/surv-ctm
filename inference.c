@@ -203,9 +203,9 @@ void lhood_bnd_surv(llna_var_param* var, doc* doc, llna_model* mod)
         }*/
     }
 
-    lhood -= cbhz_prod * vget(mod->cbasehazard, doc->t_exit) * exp(mod->intercept);
+    lhood -= cbhz_prod * vget(mod->cbasehazard, doc->t_exit); //beta already rescaled to include intercept * exp(mod->intercept);
     if (doc->label > 0 && doc->t_exit < mod->range_t - 1)
-        lhood += safe_log(vget(mod->basehazard, doc->t_exit)) + mod->intercept;
+        lhood += safe_log(vget(mod->basehazard, doc->t_exit));// +mod->intercept;
 
     lhood_bnd(var, doc, mod);
     var->lhood += lhood;

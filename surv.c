@@ -259,10 +259,10 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 		gsl_blas_dcopy(&zbar.vector, &zbar_scaled.vector);
 		gsl_blas_daxpy((-1.0), scale, &zbar_scaled.vector);
 		gsl_vector_div(&zbar.vector, scale); //zbar has to be positive as probability
-		vset(&zbar.vector, nvar - 1, 1.0);
+		vset(&zbar.vector, nvar - 1, 1.0); // Slack mixture model with scaling to reduce colinearity
 	}
 
-	gsl_vector_div(beta, scale);
+//	gsl_vector_div(beta, scale);
 
 	gsl_matrix* sum_zbar = gsl_matrix_calloc(ntimes, model->k);
 #pragma omp parallel default(none) shared(c, model, sum_zbar, ntimes, nvar) /* for (i = 0; i < corpus->ndocs; i++) */
@@ -440,7 +440,8 @@ int cox_reg_dist(llna_model* model, corpus* c, double* f)
 	*f = loglik;
 	gsl_vector_mul(beta, scale);
 	model->intercept = vget(beta, nvar - 1);
-	vset(beta, nvar - 1, 0.0);
+	for (int bn = 0; bn < nvar - 1; bn++)
+		vinc(beta, bn, model->intercept);
 	printf("Intercept %f\t", model->intercept);
 	gsl_vector_memcpy(&topic_beta.vector, beta);
 	gsl_matrix_free(sum_zbar);
@@ -1320,7 +1321,8 @@ int cox_reg_fullefron(llna_model* model, corpus* c, double* f)
 	*f = loglik; //-(log(sqrt(PARAMS.surv_penalty)) + 0.91893853) * ((double)nvar - 1);;
 	gsl_vector_mul(newbeta, scale);
 	model->intercept = vget(newbeta, nvar - 1);
-	vset(newbeta, nvar - 1, 0.0);
+	for (int bn = 0; bn < nvar - 1; bn++)
+		vinc(beta, bn, model->intercept);
 	printf("Intercept %f\t", model->intercept);
 	gsl_blas_dcopy(newbeta, &topic_beta.vector);
 	gsl_vector_free(beta);

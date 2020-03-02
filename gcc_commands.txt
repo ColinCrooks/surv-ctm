@@ -3,3 +3,10 @@ g++ c:/msys/home/mczcjc/ctm-dist/main.cpp c:/msys/home/mczcjc/survrplda/corpus.c
 
 gcc c:/msys/home/mczcjc/ctm-dist/inference.c c:/msys/home/mczcjc/ctm-dist/gsl-wrappers.c c:/msys/home/mczcjc/ctm-dist/corpus.c c:/msys/home/mczcjc/ctm-dist/estimate.c c:/msys/home/mczcjc/ctm-dist/corpus.c c:/msys/home/mczcjc/ctm-dist/params.c -o ctm.exe -g -Wall -O3 -DHAVE_INLINE -DGSL_RANGE_CHECK_OFF -I"C:/msys/home/mczcjc/gsl-1.16" -L"C:\msys\home\mczcjc\gsl-mcvs\lib\x64\Release\" -lm -lgsl -latlas -lgslcblas   -lm -lgsl -latlas -lcblas
  inference.o gsl-wrappers.o ctm.o estimate.o corpus.o params.o 
+ 
+ 
+ inf <dataset> <model-prefix> <results-prefix> <settings>\n");
+ 
+  est E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesdemo_trainredo.out 80 rand E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\nocscaleCCDe3\ settings.txt > nocscaleCCDe3.txt
+  
+   inf E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\codesdemo_testredo.out E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\CCD/1/final E:\pdrive\pdrive_inc\GPRD\SSLDA\Bayes\Development\CCD/1/val settings.txt  > outputCCDe1.txt

@@ -347,7 +347,7 @@ void cumulative_basehazard(corpus* corpus, llna_model* model)
     gsl_vector_set_zero(xb);
     gsl_vector_set_zero(zbeta);
     gsl_blas_dgemv(CblasNoTrans, 1, corpus->zbar, model->topic_beta, 0, zbeta);
-    gsl_vector_add_constant(zbeta, model->intercept);
+ //   gsl_vector_add_constant(zbeta, model->intercept); beta already rescaled to include constant
     exb = 0.0;
     for (d = (corpus->ndocs) - 1; d >= 0; d--)
     {
@@ -423,7 +423,7 @@ double cstat(corpus* corpus, llna_model* model)
     gsl_vector* zbeta = gsl_vector_calloc(nd);
     gsl_vector_set_zero(zbeta);
     gsl_blas_dgemv(CblasNoTrans, 1, corpus->zbar, model->topic_beta, 0, zbeta);
-    gsl_vector_add_constant(zbeta, model->intercept);
+//    gsl_vector_add_constant(zbeta, model->intercept); beta already rescaled to include constant
 #pragma omp parallel reduction(+:num,den) default(none) shared(zbeta, nd, corpus)
     {
         int dl, ddl;
@@ -654,7 +654,8 @@ void em(char* dataset, int k, char* start, char* dir)
             else
             {
                 printf("Flat region so unable to progress\n");
-                cox_iter = cox_reg_fullefron(model, corpus, &f);
+            //    cox_iter = cox_reg_fullefron(model, corpus, &f);
+                cox_iter = cox_reg_dist(model, corpus, &f);
                 cumulative_basehazard(corpus, model);
                 vprint(model->topic_beta);
                 maximization(model, ss);
@@ -666,8 +667,8 @@ void em(char* dataset, int k, char* start, char* dir)
         {
            if (model->iteration >= PARAMS.runin - 1)
 		   {
-		//	   cox_iter = cox_reg_dist(model, corpus, &f);
-               cox_iter = cox_reg_fullefron(model, corpus, &f);
+			   cox_iter = cox_reg_dist(model, corpus, &f);
+         //      cox_iter = cox_reg_fullefron(model, corpus, &f);
 		 //  cox_iter = cox_reg(model, corpus, &f);
 				while (cox_iter <= 0)
 				{
